@@ -65,6 +65,8 @@ type DebugFlags struct {
 	WB                    int    `help:"print information about write barriers"`
 	ABIWrap               int    `help:"print information about ABI wrapper generation"`
 	MayMoreStack          string `help:"call named function before all stack growth checks" concurrent:"ok"`
+	PGOCSIDebug           int    `help:"debug profile-guided context-sensitive inline"`
+	PGOCSIThreshold       int    `help:"function cost threshold for context-sensitive inline (default = 40)"`
 	PGODebug              int    `help:"debug profile-guided optimizations"`
 	PGOHash               string `help:"hash value for debugging profile-guided optimizations" concurrent:"ok"`
 	PGOInline             int    `help:"enable profile-guided inlining" concurrent:"ok"`

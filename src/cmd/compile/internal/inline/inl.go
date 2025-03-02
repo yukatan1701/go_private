@@ -71,6 +71,14 @@ var (
 	// TODO(prattmic): Make this non-global.
 	candHotEdgeMap = make(map[pgoir.CallSiteInfo]struct{})
 
+	profileCSIInfo *pgo.CSIInfo
+
+	// Link function name -> *ir.Func
+	nameToFunc = make(map[string]*ir.Func)
+
+	// File Index -> set of lines where any functions have been inlined
+	inlinedFuncs = make(map[int32]map[string]bool)
+
 	// Threshold in percentage for hot callsite inlining.
 	inlineHotCallSiteThresholdPercent float64
 
@@ -130,6 +138,8 @@ func PGOInlinePrologue(p *pgoir.Profile) {
 			candHotEdgeMap[csi] = struct{}{}
 		}
 	}
+
+	profileCSIInfo = p.CSISampleInfo
 
 	if base.Debug.PGODebug >= 3 {
 		fmt.Printf("hot-cg before inline in dot format:")
@@ -279,6 +289,7 @@ func CanInline(fn *ir.Func, profile *pgoir.Profile) {
 		extraCallCost: cc,
 		profile:       profile,
 	}
+	nameToFunc[ir.LinkFuncName(fn)] = fn
 	if visitor.tooHairy(fn) {
 		reason = visitor.reason
 		return
@@ -574,7 +585,7 @@ opSwitch:
 			// Check whether we'd actually inline this call. Set
 			// log == false since we aren't actually doing inlining
 			// yet.
-			if ok, _, _ := canInlineCallExpr(v.curFunc, n, callee, v.isBigFunc, false, false); ok {
+			if ok, _, _ := canInlineCallExpr(v.curFunc, n, callee, v.isBigFunc, false, v.profile, false); ok {
 				// mkinlcall would inline this call [1], so use
 				// the cost of the inline body as the cost of
 				// the call, as that is what will actually
@@ -848,7 +859,7 @@ func TryInlineCall(callerfn *ir.Func, call *ir.CallExpr, bigCaller bool, profile
 	}
 
 	if fn := inlCallee(callerfn, call.Fun, profile, false); fn != nil && typecheck.HaveInlineBody(fn) {
-		return mkinlcall(callerfn, call, fn, bigCaller, closureCalledOnce)
+		return mkinlcall(callerfn, call, fn, bigCaller, closureCalledOnce, profile)
 	}
 	return nil
 }
@@ -908,7 +919,11 @@ var InlineCall = func(callerfn *ir.Func, call *ir.CallExpr, fn *ir.Func, inlInde
 //   - the "max cost" limit used to make the decision (which may differ depending on func size)
 //   - the score assigned to this specific callsite
 //   - whether the inlined function is "hot" according to PGO.
-func inlineCostOK(n *ir.CallExpr, caller, callee *ir.Func, bigCaller, closureCalledOnce bool) (bool, int32, int32, bool) {
+func inlineCostOK(n *ir.CallExpr, caller, callee *ir.Func, bigCaller, closureCalledOnce bool, profile *pgoir.Profile) (bool, int32, int32, bool) {
+	if caller.Sym().Pkg != callee.Sym().Pkg {
+		nameToFunc[ir.LinkFuncName(callee)] = callee
+	}
+
 	maxCost := int32(inlineMaxBudget)
 
 	if bigCaller {
@@ -929,6 +944,21 @@ func inlineCostOK(n *ir.CallExpr, caller, callee *ir.Func, bigCaller, closureCal
 		score, ok := inlheur.GetCallSiteScore(caller, n)
 		if ok {
 			metric = int32(score)
+		}
+	}
+
+	csiThreshold := base.Debug.PGOCSIThreshold
+	if base.Flag.PgoCsinl && csiThreshold > 0 && callee.Inl.Cost >= int32(csiThreshold) {
+		trueCaller := caller
+		parentInlIdx := base.Ctxt.PosTable.Pos(n.Pos()).Base().InliningIndex()
+		if parentInlIdx >= 0 {
+			parentName := base.Ctxt.InlTree.InlinedFunction(parentInlIdx).Name
+			if f, ok := nameToFunc[parentName]; ok && f != nil {
+				trueCaller = f
+			}
+		}
+		if isColdInsideContext(n, trueCaller, caller, callee, profile) {
+			return false, maxCost, metric, false
 		}
 	}
 
@@ -974,6 +1004,296 @@ func inlineCostOK(n *ir.CallExpr, caller, callee *ir.Func, bigCaller, closureCal
 	return true, 0, metric, hot
 }
 
+func callStackToString(cs []pgo.CSICallSite) string {
+	out := "[ "
+	for _, call := range cs {
+		out += fmt.Sprintf("[%s:%d] ", call.FuncName, call.Line)
+	}
+	out += "]"
+	return out
+}
+
+// Check if there are any other callsites on the same line that have been inlined earlier.
+//
+// Consider the example:
+//
+// v := Foo(Bar())
+//
+// The compiler transforms this as follows:
+//
+// arg := Bar()
+// v := Foo(arg)
+//
+// Suppose that the call to Bar is hot and has been inlined. However, the call to Foo may not
+// appear in a profile although it is hot too in fact. We shouldn't prevent inlining in
+// such cases.
+func sameLineWithInlinedFunc(n *ir.CallExpr) bool {
+	if m, ok := inlinedFuncs[n.Pos().FileIndex()]; ok {
+		if _, ok := m[n.Pos().LineNumber()]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// Check if a call is unconditional.
+//
+// Consider the following:
+//
+//	func Bar() {
+//	    A()
+//	    B()
+//	    ...
+//	}
+//
+//	func Foo() {
+//	    for {
+//	        Bar() // inline this one
+//	        ...
+//	    }
+//	}
+//
+// If we decide to inline Bar (for example, if the callsite is hot) we expect that its body
+// may often be executed. Hence, we shouldn't prevent inlining of functions called from Bar
+// without any condition.
+func checkUncondCallsite(n *ir.CallExpr, body ir.Nodes) bool {
+	isCall := func(node ir.Node) (bool, *ir.CallExpr) {
+		switch node.Op() {
+		case ir.OCALL, ir.OCALLFUNC, ir.OCALLMETH, ir.OCALLINTER:
+			return true, node.(*ir.CallExpr)
+		default:
+			return false, nil
+		}
+	}
+
+	match := func(node ir.Node) bool {
+		ok, expr := isCall(node)
+		return ok && expr == n
+	}
+
+	hasCallsite := func(node ir.Node) bool {
+		if match(node) {
+			return true
+		}
+		switch node.Op() {
+		case ir.OAS:
+			node := node.(*ir.AssignStmt)
+			rhs := node.Y
+			if ir.Any(rhs, match) {
+				return true
+			}
+		case ir.OASOP:
+			node := node.(*ir.AssignOpStmt)
+			rhs := node.Y
+			if ir.Any(rhs, match) {
+				return true
+			}
+		case ir.OAS2, ir.OAS2FUNC:
+			node := node.(*ir.AssignListStmt)
+			rhs := node.Rhs
+			if ir.AnyList(rhs, match) {
+				return true
+			}
+		case ir.OCALL, ir.OCALLFUNC, ir.OCALLMETH, ir.OCALLINTER:
+			node := node.(*ir.CallExpr)
+			if ir.AnyList(node.Args, match) {
+				return true
+			}
+		case ir.ORETURN:
+			x := node.(*ir.ReturnStmt)
+			if ir.AnyList(x.Results, match) {
+				return true
+			}
+			if x.Pos().SameFileAndLine(n.Pos()) {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, node := range body {
+		if hasCallsite(node) {
+			return true
+		}
+	}
+
+	matchInl := func(x ir.Node) bool {
+		if x.Op() == ir.OINLCALL {
+			x := x.(*ir.InlinedCallExpr)
+			for _, node := range x.Body {
+				if hasCallsite(node) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	return ir.AnyList(body, matchInl)
+}
+
+func uncondCallsite(n *ir.CallExpr, rootCaller *ir.Func) bool {
+	if checkUncondCallsite(n, rootCaller.Body) {
+		return true
+	}
+	matchLoopBody := func(x ir.Node) bool {
+		if x.Op() == ir.OFOR {
+			x := x.(*ir.ForStmt)
+			return checkUncondCallsite(n, x.Body)
+		}
+		if x.Op() == ir.ORANGE {
+			x := x.(*ir.RangeStmt)
+			return checkUncondCallsite(n, x.Body)
+		}
+		return false
+	}
+	return ir.Any(rootCaller, matchLoopBody)
+}
+
+func isColdInsideContext(n *ir.CallExpr, caller, rootCaller, callee *ir.Func, profile *pgoir.Profile) bool {
+	if !base.Flag.PgoCsinl || profile == nil {
+		return false
+	}
+	if profileCSIInfo == nil {
+		base.Fatalf("CS-inline: missed profileCSIInfo.\n")
+	}
+	if caller == nil {
+		base.Fatalf("CS-inline: callee must have an immediate caller!")
+	}
+
+	callStack := []pgo.CSICallSite{
+		{
+			FuncName: ir.LinkFuncName(callee),
+			Line:     -1,
+		},
+	}
+	callsiteLine := n.Pos().Line()
+	parent := base.Ctxt.PosTable.Pos(n.Pos()).Base().InliningIndex()
+	for inlIndex := parent; inlIndex >= 0; inlIndex = base.Ctxt.InlTree.Parent(inlIndex) {
+		parentFuncName := base.Ctxt.InlTree.InlinedFunction(inlIndex).Name
+		callSite := pgo.CSICallSite{FuncName: parentFuncName, Line: int(callsiteLine)}
+		callStack = append(callStack, callSite)
+		callsiteLine = base.Ctxt.InlTree.CallPos(inlIndex).Line()
+	}
+	bottomCallsite := pgo.CSICallSite{FuncName: ir.LinkFuncName(rootCaller), Line: int(callsiteLine)}
+	callStack = append(callStack, bottomCallsite)
+
+	if countSubstackInSamples(callStack) == 0 {
+		if sameLineWithInlinedFunc(n) {
+			return false
+		}
+		if uncondCallsite(n, rootCaller) {
+			return false
+		}
+		if base.Debug.PGOCSIDebug > 0 {
+			fmt.Printf("CS-inline: prevent inlining of call %s (cost %d) at %v in function %s\n", ir.PkgFuncName(callee), callee.Inl.Cost, ir.Line(n), ir.PkgFuncName(caller))
+		}
+		return true
+	}
+	return false
+}
+
+func countSubstackInSamples(subStack []pgo.CSICallSite) int {
+	if profileCSIInfo == nil {
+		base.Fatalf("CS-inline: profileCSIInfo is missed.\n")
+	}
+	if len(subStack) == 0 {
+		base.Fatalf("CS-inline: empty substack.\n")
+	}
+	if len(subStack) < 2 {
+		base.Fatalf("CS-inline: too short substack (min = 2): %v\n", callStackToString(subStack))
+	}
+	if subStack[0].Line != -1 {
+		base.Fatalf("CS-inline: top frame line must be equal to -1!\n")
+	}
+
+	intersect := func(s1, s2 pgo.CSISampleSet) pgo.CSISampleSet {
+		res := make(pgo.CSISampleSet)
+		for v := range s1 {
+			if _, ok := s2[v]; ok {
+				res[v] = true
+			}
+		}
+		return res
+	}
+	union := func(s1, s2 pgo.CSISampleSet) pgo.CSISampleSet {
+		res := make(pgo.CSISampleSet)
+		for s := range s1 {
+			res[s] = true
+		}
+		for s := range s2 {
+			res[s] = true
+		}
+		return res
+	}
+
+	if len(subStack) == 2 {
+		// Consider the following substack: [[A:-1], [B:20]].
+		// There's a sample in a sample list: [[B:20], [C:40], [D:60]].
+		// At the moment the sample was taken we stopped at the position [B:20].
+		// It turned out to be a callsite, so we can potentially reach a call to A.
+		// Note that there may be a call to some other function F on the same line
+		// where A is called. It is often found in cases of condional statements.
+		// Since both A and F may be called, we don't want to prevent inlining
+		// of F. So, there's no need to consider the actual callee on the top
+		// of the substack.
+		bottomFrame := subStack[1]
+		if node, ok := (*profileCSIInfo).Graph[bottomFrame.FuncName]; ok {
+			if count, ok := node.TopLines[bottomFrame.Line]; ok {
+				return count
+			}
+		}
+	}
+
+	commonSamples := make(pgo.CSISampleSet)
+
+	for i := 0; i < len(subStack)-1; i++ {
+		curFrame := subStack[i]
+		nextFrame := subStack[i+1]
+		if curNode, ok := (*profileCSIInfo).Graph[curFrame.FuncName]; ok {
+			if nextNode, ok := (*profileCSIInfo).Graph[nextFrame.FuncName]; ok {
+				if edges, ok := curNode.TargetNodes[nextNode]; ok {
+					from := curFrame.Line
+					to := nextFrame.Line
+					isTop := i == 0
+					found := false
+					for _, edge := range edges {
+						if (from == edge.From || isTop) && to == edge.To {
+							if isTop {
+								commonSamples = union(commonSamples, edge.Samples)
+							} else {
+								if found {
+									base.Fatalf("CS-inline: extra sample list for one callsite pair!")
+								}
+								commonSamples = intersect(commonSamples, edge.Samples)
+							}
+							found = true
+							if len(commonSamples) == 0 {
+								return 0
+							}
+						}
+					}
+					if !found {
+						return 0
+					}
+				} else {
+					return 0
+				}
+			} else {
+				return 0
+			}
+		} else {
+			return 0
+		}
+	}
+
+	totalCount := 0
+	for sample := range commonSamples {
+		totalCount += profileCSIInfo.SampleToCount[sample]
+	}
+	return totalCount
+}
+
 // canInlineCallExpr returns true if the call n from caller to callee
 // can be inlined, plus the score computed for the call expr in question,
 // and whether the callee is hot according to PGO.
@@ -981,7 +1301,7 @@ func inlineCostOK(n *ir.CallExpr, caller, callee *ir.Func, bigCaller, closureCal
 // indicates that the 'cannot inline' reason should be logged.
 //
 // Preconditions: CanInline(callee) has already been called.
-func canInlineCallExpr(callerfn *ir.Func, n *ir.CallExpr, callee *ir.Func, bigCaller, closureCalledOnce bool, log bool) (bool, int32, bool) {
+func canInlineCallExpr(callerfn *ir.Func, n *ir.CallExpr, callee *ir.Func, bigCaller, closureCalledOnce bool, profile *pgoir.Profile, log bool) (bool, int32, bool) {
 	if callee.Inl == nil {
 		// callee is never inlinable.
 		if log && logopt.Enabled() {
@@ -991,7 +1311,7 @@ func canInlineCallExpr(callerfn *ir.Func, n *ir.CallExpr, callee *ir.Func, bigCa
 		return false, 0, false
 	}
 
-	ok, maxCost, callSiteScore, hot := inlineCostOK(n, callerfn, callee, bigCaller, closureCalledOnce)
+	ok, maxCost, callSiteScore, hot := inlineCostOK(n, callerfn, callee, bigCaller, closureCalledOnce, profile)
 	if !ok {
 		// callee cost too high for this call site.
 		if log && logopt.Enabled() {
@@ -1099,8 +1419,8 @@ func canInlineCallExpr(callerfn *ir.Func, n *ir.CallExpr, callee *ir.Func, bigCa
 // The result of mkinlcall MUST be assigned back to n, e.g.
 //
 //	n.Left = mkinlcall(n.Left, fn, isddd)
-func mkinlcall(callerfn *ir.Func, n *ir.CallExpr, fn *ir.Func, bigCaller, closureCalledOnce bool) *ir.InlinedCallExpr {
-	ok, score, hot := canInlineCallExpr(callerfn, n, fn, bigCaller, closureCalledOnce, true)
+func mkinlcall(callerfn *ir.Func, n *ir.CallExpr, fn *ir.Func, bigCaller, closureCalledOnce bool, profile *pgoir.Profile) *ir.InlinedCallExpr {
+	ok, score, hot := canInlineCallExpr(callerfn, n, fn, bigCaller, closureCalledOnce, profile, true)
 	if !ok {
 		return nil
 	}
@@ -1187,6 +1507,11 @@ func mkinlcall(callerfn *ir.Func, n *ir.CallExpr, fn *ir.Func, bigCaller, closur
 	if inlheur.Enabled() {
 		inlheur.UpdateCallsiteTable(callerfn, n, res)
 	}
+
+	if _, ok := inlinedFuncs[n.Pos().FileIndex()]; !ok {
+		inlinedFuncs[n.Pos().FileIndex()] = make(map[string]bool)
+	}
+	inlinedFuncs[n.Pos().FileIndex()][n.Pos().LineNumber()] = true
 
 	return res
 }

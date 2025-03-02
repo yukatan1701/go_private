@@ -184,6 +184,8 @@ and test commands:
 		directory if that file exists, and applies it to the (transitive)
 		dependencies of the main package (other packages are not affected).
 		Special name "off" turns off PGO. The default is "auto".
+	-pgocsinl
+		enable context-sensitive inline. Option can used only with PGO enabled.
 	-pkgdir dir
 		install and load all packages from dir instead of the usual locations.
 		For example, when building with a non-standard configuration,
@@ -347,6 +349,7 @@ func AddBuildFlags(cmd *base.Command, mask BuildFlagMask) {
 	cmd.Flag.BoolVar(&cfg.BuildLinkshared, "linkshared", false, "")
 	cmd.Flag.BoolVar(&cfg.BuildMSan, "msan", false, "")
 	cmd.Flag.StringVar(&cfg.BuildPGO, "pgo", "auto", "")
+	cmd.Flag.BoolVar(&cfg.BuildPGOCSINL, "pgocsinl", false, "")
 	cmd.Flag.StringVar(&cfg.BuildPkgdir, "pkgdir", "", "")
 	cmd.Flag.BoolVar(&cfg.BuildRace, "race", false, "")
 	cmd.Flag.Var((*tagsFlag)(&cfg.BuildContext.BuildTags), "tags", "")

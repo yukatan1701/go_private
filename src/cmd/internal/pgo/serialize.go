@@ -77,3 +77,100 @@ func (d *Profile) WriteTo(w io.Writer) (int64, error) {
 
 	return written, nil
 }
+
+// WriteCsinlTo writes a serialized representation of context-sensitive inline profile to w.
+//
+// FromSerializedCsinl can parse the format back to Profile.
+//
+// WriteCsinlTo implements io.WriterTo.Write.
+func (d *Profile) WriteCsinlTo(w io.Writer) (int64, error) {
+	bw := bufio.NewWriter(w)
+
+	var written int64
+
+	n, err := bw.WriteString(serializationHeader)
+	written += int64(n)
+	if err != nil {
+		return written, err
+	}
+
+	if d.CSISampleInfo != nil {
+		graph := &(*d.CSISampleInfo).Graph
+		n, err = fmt.Fprintf(bw, "%d\n", len(*graph))
+		written += int64(n)
+		if err != nil {
+			return written, err
+		}
+
+		funcToIdx := make(map[string]int)
+		i := 0
+		for fname := range *graph {
+			funcToIdx[fname] = i
+			n, err = fmt.Fprintf(bw, "%d %s\n", i, fname)
+			written += int64(n)
+			if err != nil {
+				return written, err
+			}
+			i++
+		}
+		for fname, idx := range funcToIdx {
+			node := (*graph)[fname]
+			edgeNum := len(node.TargetNodes)
+			n, err = fmt.Fprintf(bw, "%d %d %d\n", idx, edgeNum, len(node.TopLines))
+			written += int64(n)
+			if err != nil {
+				return written, err
+			}
+			for targetNode, edges := range node.TargetNodes {
+				funcIdx := funcToIdx[targetNode.FuncName]
+				n, err = fmt.Fprintf(bw, "%d %d\n", funcIdx, len(edges))
+				written += int64(n)
+				if err != nil {
+					return written, err
+				}
+				for _, edge := range edges {
+					n, err = fmt.Fprintf(bw, "%d %d %d\n", edge.From, edge.To, len(edge.Samples))
+					written += int64(n)
+					if err != nil {
+						return written, err
+					}
+					for sample := range edge.Samples {
+						n, err = fmt.Fprintf(bw, "%d\n", sample)
+						written += int64(n)
+						if err != nil {
+							return written, err
+						}
+					}
+				}
+			}
+			for lineIdx, sampleCount := range node.TopLines {
+				n, err = fmt.Fprintf(bw, "%d %d\n", lineIdx, sampleCount)
+				written += int64(n)
+				if err != nil {
+					return written, err
+				}
+			}
+		}
+
+		sampleNum := len((*d.CSISampleInfo).SampleToCount)
+		n, err = fmt.Fprintf(bw, "%d\n", sampleNum)
+		written += int64(n)
+		if err != nil {
+			return written, err
+		}
+
+		for idx, count := range (*d.CSISampleInfo).SampleToCount {
+			n, err = fmt.Fprintf(bw, "%d %d\n", idx, count)
+			written += int64(n)
+			if err != nil {
+				return written, err
+			}
+		}
+	}
+
+	if err := bw.Flush(); err != nil {
+		return written, err
+	}
+
+	return written, nil
+}

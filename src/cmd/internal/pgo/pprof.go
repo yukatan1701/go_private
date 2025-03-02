@@ -16,7 +16,7 @@ import (
 )
 
 // FromPProf parses Profile from a pprof profile.
-func FromPProf(r io.Reader) (*Profile, error) {
+func FromPProf(r io.Reader, csinl bool) (*Profile, error) {
 	p, err := profile.Parse(r)
 	if errors.Is(err, profile.ErrNoData) {
 		// Treat a completely empty file the same as a profile with no
@@ -59,9 +59,15 @@ func FromPProf(r io.Reader) (*Profile, error) {
 		return emptyProfile(), nil // accept but ignore profile with no samples.
 	}
 
+	var csiSampleInfo *CSIInfo
+	if csinl {
+		csiSampleInfo = createCSISampleInfo(p)
+	}
+
 	return &Profile{
-		TotalWeight:  totalWeight,
-		NamedEdgeMap: namedEdgeMap,
+		TotalWeight:   totalWeight,
+		NamedEdgeMap:  namedEdgeMap,
+		CSISampleInfo: csiSampleInfo,
 	}, nil
 }
 
@@ -137,4 +143,98 @@ func postProcessNamedEdgeMap(weight map[NamedCallEdge]int64, weightVal int64) (e
 	totalWeight = weightVal
 
 	return edgeMap, totalWeight, nil
+}
+
+func createCSISampleInfo(p *profile.Profile) *CSIInfo {
+	csiInfo := CSIInfo{
+		Graph:         make(map[string]*CSINode),
+		SampleToCount: make(map[int]int),
+	}
+	for j, sample := range p.Sample {
+		if len(sample.Location) == 0 {
+			continue
+		}
+		stack := make([]CSICallSite, 0)
+		for li := 0; li < len(sample.Location); li++ {
+			loc := sample.Location[li]
+			// Multiple line indicates this location has inlined functions,
+			// where the last entry represents the caller into which the
+			// preceding entries were inlined.
+			//
+			// E.g., if memcpy() is inlined into printf:
+			//    line[0].function_name == "memcpy"
+			//    line[1].function_name == "printf"
+			for i := 0; i < len(loc.Line); i++ {
+				line := loc.Line[i]
+				funcName := line.Function.SystemName
+				lineNum := line.Line
+				pos := CSICallSite{FuncName: funcName, Line: int(lineNum)}
+				stack = append(stack, pos)
+			}
+		}
+		sampleCount := sample.Value[0]
+		if len(stack) <= 1 {
+			continue
+		}
+		csiInfo.SampleToCount[j] = int(sampleCount)
+
+		for i := 0; i < len(stack)-1; i++ {
+			frame := stack[i]
+			// Add callee node if not exist
+			if _, ok := csiInfo.Graph[frame.FuncName]; !ok {
+				node := &CSINode{
+					FuncName:    frame.FuncName,
+					TargetNodes: make(map[*CSINode][]CSIEdge),
+					TopLines:    make(map[int]int),
+				}
+				csiInfo.Graph[frame.FuncName] = node
+			}
+			callerFrame := stack[i+1]
+			// Add caller node if not exist
+			if _, ok := csiInfo.Graph[callerFrame.FuncName]; !ok {
+				node := &CSINode{
+					FuncName:    callerFrame.FuncName,
+					TargetNodes: make(map[*CSINode][]CSIEdge),
+					TopLines:    make(map[int]int),
+				}
+				csiInfo.Graph[callerFrame.FuncName] = node
+			}
+			node := csiInfo.Graph[frame.FuncName]
+			callerNode := csiInfo.Graph[callerFrame.FuncName]
+			// Add an edge from callee to caller
+			if _, ok := (*node).TargetNodes[callerNode]; !ok {
+				(*node).TargetNodes[callerNode] = make([]CSIEdge, 0)
+			}
+			edges := (*node).TargetNodes[callerNode]
+			from := frame.Line
+			if i == 0 {
+				if count, ok := (*node).TopLines[from]; ok {
+					(*node).TopLines[from] = count + 1
+				} else {
+					(*node).TopLines[from] = 1
+				}
+				from = -1
+			}
+			to := callerFrame.Line
+			// If this edge exists, update sample indices
+			foundEdge := false
+			for _, edge := range edges {
+				if from == edge.From && to == edge.To {
+					edge.Samples[j] = true
+					foundEdge = true
+				}
+			}
+			if !foundEdge {
+				edges = append(edges, CSIEdge{
+					From: from,
+					To:   to,
+					Samples: CSISampleSet{
+						j: true,
+					},
+				})
+			}
+			(*node).TargetNodes[callerNode] = edges
+		}
+	}
+	return &csiInfo
 }

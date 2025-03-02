@@ -219,6 +219,7 @@ func TestPackagesAndErrors(ctx context.Context, done func(), opts PackageOpts, p
 		ptest.EmbedFiles = str.StringList(p.EmbedFiles, p.TestEmbedFiles)
 		ptest.Internal.OrigImportPath = p.Internal.OrigImportPath
 		ptest.Internal.PGOProfile = p.Internal.PGOProfile
+		ptest.Internal.PGOcsinl = p.Internal.PGOcsinl
 		ptest.Internal.Build.Directives = append(slices.Clip(p.Internal.Build.Directives), p.Internal.Build.TestDirectives...)
 	} else {
 		ptest = p
@@ -257,6 +258,7 @@ func TestPackagesAndErrors(ctx context.Context, done func(), opts PackageOpts, p
 				Embed:          xtestEmbed,
 				OrigImportPath: p.Internal.OrigImportPath,
 				PGOProfile:     p.Internal.PGOProfile,
+				PGOcsinl:       p.Internal.PGOcsinl,
 			},
 		}
 		if pxtestNeedsPtest {
@@ -288,6 +290,7 @@ func TestPackagesAndErrors(ctx context.Context, done func(), opts PackageOpts, p
 			Gccgoflags:     gccgoflags,
 			OrigImportPath: p.Internal.OrigImportPath,
 			PGOProfile:     p.Internal.PGOProfile,
+			PGOcsinl:       p.Internal.PGOcsinl,
 		},
 	}
 
@@ -458,6 +461,7 @@ func recompileForTest(pmain, preal, ptest, pxtest *Package) *PackageError {
 			p.Internal.BuildInfo = nil
 			p.Internal.ForceLibrary = true
 			p.Internal.PGOProfile = preal.Internal.PGOProfile
+			p.Internal.PGOcsinl = preal.Internal.PGOcsinl
 		}
 
 		// Update p.Internal.Imports to use test copies.

@@ -236,6 +236,7 @@ type PackageInternal struct {
 	Embed             map[string][]string // //go:embed comment mapping
 	OrigImportPath    string              // original import path before adding '_test' suffix
 	PGOProfile        string              // path to PGO profile
+	PGOcsinl          bool                // enable context-sensitive inline
 	ForMain           string              // the main package if this package is built specifically for it
 
 	Asmflags   []string // -asmflags for this package
@@ -2965,6 +2966,10 @@ func setPGOProfilePath(pkgs []*Package) {
 			return
 		}
 
+		if cfg.BuildPGOCSINL {
+			appendBuildSetting(p.Internal.BuildInfo, "-pgocsinl", "true")
+		}
+
 		if cfg.BuildTrimpath {
 			appendBuildSetting(p.Internal.BuildInfo, "-pgo", filepath.Base(file))
 		} else {
@@ -2978,6 +2983,9 @@ func setPGOProfilePath(pkgs []*Package) {
 
 	switch cfg.BuildPGO {
 	case "off":
+		if cfg.BuildPGOCSINL {
+			base.Fatalf("The \"-pgocsinl\" option can be enabled only if \"-pgo\" is not \"off\"")
+		}
 		return
 
 	case "auto":
@@ -3030,6 +3038,7 @@ func setPGOProfilePath(pkgs []*Package) {
 					visited[p] = p
 				}
 				p.Internal.PGOProfile = file
+				p.Internal.PGOcsinl = cfg.BuildPGOCSINL
 				updateBuildInfo(p, file)
 				// Recurse to dependencies.
 				for i, pp := range p.Internal.Imports {
@@ -3052,6 +3061,7 @@ func setPGOProfilePath(pkgs []*Package) {
 
 		for _, p := range PackageList(pkgs) {
 			p.Internal.PGOProfile = file
+			p.Internal.PGOcsinl = cfg.BuildPGOCSINL
 			updateBuildInfo(p, file)
 		}
 	}

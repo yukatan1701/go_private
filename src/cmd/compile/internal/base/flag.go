@@ -125,6 +125,7 @@ type CmdFlags struct {
 	TraceProfile       string       "help:\"write an execution trace to `file`\""
 	TrimPath           string       "help:\"remove `prefix` from recorded source file paths\""
 	WB                 bool         "help:\"enable write barrier\"" // TODO: remove
+	PgoCsinl           bool         "help:\"use context-sensitive inline in pgo mode\""
 	PgoProfile         string       "help:\"read profile or pre-process profile from `file`\""
 	ErrorURL           bool         "help:\"print explanatory URL with error message if applicable\""
 
@@ -187,6 +188,7 @@ func ParseFlags() {
 	Debug.ZeroCopy = 1
 	Debug.RangeFuncCheck = 1
 	Debug.MergeLocals = 1
+	Debug.PGOCSIThreshold = 40
 
 	Debug.Checkptr = -1 // so we can tell whether it is set explicitly
 

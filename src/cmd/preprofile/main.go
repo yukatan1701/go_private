@@ -8,7 +8,7 @@
 //
 // Usage:
 //
-//	go tool preprofile [-V] [-o output] -i input
+//	go tool preprofile [-V] [-pgocsinl] [-o output] -i input
 package main
 
 import (
@@ -23,14 +23,15 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: go tool preprofile [-V] [-o output] -i input\n\n")
+	fmt.Fprintf(os.Stderr, "usage: go tool preprofile [-V] [-pgocsinl] [-o output] -i input\n\n")
 	flag.PrintDefaults()
 	os.Exit(2)
 }
 
 var (
-	output = flag.String("o", "", "output file path")
-	input  = flag.String("i", "", "input pprof file path")
+	pgocsinl = flag.Bool("pgocsinl", false, "generate context-sensitive inline profile")
+	output   = flag.String("o", "", "output file path")
+	input    = flag.String("i", "", "input pprof file path")
 )
 
 func preprocess(profileFile string, outputFile string) error {
@@ -41,12 +42,12 @@ func preprocess(profileFile string, outputFile string) error {
 	defer f.Close()
 
 	r := bufio.NewReader(f)
-	d, err := pgo.FromPProf(r)
+	d, err := pgo.FromPProf(r, *pgocsinl)
 	if err != nil {
 		return fmt.Errorf("error parsing profile: %w", err)
 	}
 
-	var out *os.File
+	var out, outcsinl *os.File
 	if outputFile == "" {
 		out = os.Stdout
 	} else {
@@ -55,11 +56,25 @@ func preprocess(profileFile string, outputFile string) error {
 			return fmt.Errorf("error creating output file: %w", err)
 		}
 		defer out.Close()
+		if *pgocsinl {
+			outcsinl, err = os.Create(outputFile + ".pgocsinl")
+			if err != nil {
+				return fmt.Errorf("error creating output file: %w", err)
+			}
+			defer outcsinl.Close()
+		}
 	}
 
 	w := bufio.NewWriter(out)
 	if _, err := d.WriteTo(w); err != nil {
 		return fmt.Errorf("error writing output file: %w", err)
+	}
+
+	if *pgocsinl {
+		w := bufio.NewWriter(outcsinl)
+		if _, err := d.WriteCsinlTo(w); err != nil {
+			return fmt.Errorf("error writing output file: %w", err)
+		}
 	}
 
 	return nil

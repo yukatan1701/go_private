@@ -85,6 +85,7 @@ var (
 	BuildO                 string                  // -o flag
 	BuildP                 = runtime.GOMAXPROCS(0) // -p flag
 	BuildPGO               string                  // -pgo flag
+	BuildPGOCSINL          bool                    // -pgocsinl flag
 	BuildPkgdir            string                  // -pkgdir flag
 	BuildRace              bool                    // -race flag
 	BuildToolexec          []string                // -toolexec flag
