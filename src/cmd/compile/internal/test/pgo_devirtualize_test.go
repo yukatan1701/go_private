@@ -23,7 +23,7 @@ const profFileName = "devirt.pprof"
 const preProfFileName = "devirt.pprof.node_map"
 
 // testPGODevirtualize tests that specific PGO devirtualize rewrites are performed.
-func testPGODevirtualize(t *testing.T, dir string, want []devirtualization, pgoProfileName string) {
+func testPGODevirtualize(t *testing.T, dir string, want, nowant []devirtualization, pgoProfileName string) {
 	testenv.MustHaveGoRun(t)
 	t.Parallel()
 
@@ -104,6 +104,11 @@ go 1.21
 		}
 		t.Errorf("devirtualization %v missing; got %v", w, got)
 	}
+	for _, nw := range nowant {
+		if _, ok := got[nw]; ok {
+			t.Errorf("unnecessary devirtualization %v; got %v", nw, got)
+		}
+	}
 
 	// Run test with PGO to ensure the assertions are still true.
 	cmd = testenv.CleanCmdEnv(testenv.Command(t, out))
@@ -174,8 +179,20 @@ func TestPGODevirtualize(t *testing.T) {
 		//	callee: "mult.MultClosure.func1",
 		//},
 	}
+	nowant := []devirtualization{
+		// ExerciseIfaceZeroWeight
+		{
+			pos:    "./devirt.go:256:29",
+			callee: "Add.Add",
+		},
+		// ExerciseIndirCallZeroWeight
+		{
+			pos:    "./devirt.go:282:26",
+			callee: "DirectCall",
+		},
+	}
 
-	testPGODevirtualize(t, dir, want, profFileName)
+	testPGODevirtualize(t, dir, want, nowant, profFileName)
 }
 
 // TestPGOPreprocessDevirtualize tests that specific functions are devirtualized when PGO
@@ -237,8 +254,20 @@ func TestPGOPreprocessDevirtualize(t *testing.T) {
 		//	callee: "mult.MultClosure.func1",
 		//},
 	}
+	nowant := []devirtualization{
+		// ExerciseIfaceZeroWeight
+		{
+			pos:    "./devirt.go:256:29",
+			callee: "Add.Add",
+		},
+		// ExerciseIndirCallZeroWeight
+		{
+			pos:    "./devirt.go:282:26",
+			callee: "DirectCall",
+		},
+	}
 
-	testPGODevirtualize(t, dir, want, preProfFileName)
+	testPGODevirtualize(t, dir, want, nowant, preProfFileName)
 }
 
 // Regression test for https://go.dev/issue/65615. If a target function changes
@@ -303,8 +332,20 @@ func TestLookupFuncGeneric(t *testing.T) {
 		//	callee: "mult.MultClosure.func1",
 		//},
 	}
+	nowant := []devirtualization{
+		// ExerciseIfaceZeroWeight
+		{
+			pos:    "./devirt.go:256:29",
+			callee: "Add.Add",
+		},
+		// ExerciseIndirCallZeroWeight
+		{
+			pos:    "./devirt.go:282:26",
+			callee: "DirectCall",
+		},
+	}
 
-	testPGODevirtualize(t, dir, want, profFileName)
+	testPGODevirtualize(t, dir, want, nowant, profFileName)
 }
 
 var multFnRe = regexp.MustCompile(`func MultFn\(a, b int64\) int64`)
