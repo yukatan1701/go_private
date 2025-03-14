@@ -191,7 +191,7 @@ func maybeDevirtualizeInterfaceCall(p *pgoir.Profile, fn *ir.Func, call *ir.Call
 
 	// Bail if we do not have a hot callee.
 	callee, weight := findHotConcreteInterfaceCallee(p, fn, call)
-	if callee == nil {
+	if callee == nil || weight == 0 {
 		return nil, nil, 0
 	}
 	// Bail if we do not have a Type node for the hot callee.
@@ -227,7 +227,7 @@ func maybeDevirtualizeFunctionCall(p *pgoir.Profile, fn *ir.Func, call *ir.CallE
 
 	// Bail if we do not have a hot callee.
 	callee, weight := findHotConcreteFunctionCallee(p, fn, call)
-	if callee == nil {
+	if callee == nil || weight == 0 {
 		return nil, nil, 0
 	}
 
