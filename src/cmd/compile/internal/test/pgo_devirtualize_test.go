@@ -106,7 +106,7 @@ go 1.21
 	}
 	for _, nw := range nowant {
 		if _, ok := got[nw]; ok {
-			t.Errorf("unnecessary devirtualization %v; got %v", nw, got)
+			t.Errorf("unwanted devirtualization %v; got %v", nw, got)
 		}
 	}
 
