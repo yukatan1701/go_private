@@ -253,7 +253,7 @@ func ExerciseFuncClosure(iter int, a1, a2 AddFunc, m1, m2 mult.MultFunc) int {
 
 //go:noinline
 func IfaceZeroWeight(a *Add, b Adder) bool {
-	return a.Add(1, 2) == b.Add(3, 4)
+	return a.Add(1, 2) == b.Add(3, 4) // unwanted devirtualization
 }
 
 // ExerciseIfaceZeroWeight never calls IfaceZeroWeight, so the callee
@@ -278,8 +278,8 @@ func IndirectCall() bool {
 }
 
 //go:noinline
-func IndirCallZeroWeight(f func() bool) bool {
-	return DirectCall() && f()
+func IndirCallZeroWeight(indirectCall func() bool) bool {
+	return DirectCall() && indirectCall() // unwanted devirtualization
 }
 
 // ExerciseIndirCallZeroWeight never calls IndirCallZeroWeight, so the
