@@ -1,0 +1,15 @@
+Benchmarks ARM64 (Kunpeng 920):
+
+                       │ pgo_base.txt │            pgo_new.txt             │
+                       │    sec/op    │   sec/op     vs base               │
+BiogoIgor-4                26.18 ± 2%    24.13 ± 3%  -7.82% (p=0.000 n=10)
+BiogoKrishna-4             24.82 ± 0%    24.63 ± 1%  -0.76% (p=0.003 n=10)
+BleveIndexBatch100-4       7.302 ± 1%    7.212 ± 2%       ~ (p=0.052 n=10)
+ESBuildThreeJS-4          804.3m ± 1%   795.8m ± 1%  -1.06% (p=0.000 n=10)
+ESBuildRomeTS-4           204.2m ± 1%   201.4m ± 2%  -1.38% (p=0.002 n=10)
+EtcdPut-4                 60.13m ± 1%   60.23m ± 1%       ~ (p=0.247 n=10)
+EtcdSTM-4                 307.1m ± 1%   302.8m ± 1%  -1.39% (p=0.001 n=10)
+GopherLuaKNucleotide-4     33.18 ± 1%    32.26 ± 0%  -2.76% (p=0.001 n=10)
+MarkdownRenderXHTML-4     270.8m ± 0%   269.1m ± 0%  -0.62% (p=0.000 n=10)
+Tile38QueryLoad-4         643.2µ ± 0%   617.2µ ± 1%  -4.04% (p=0.000 n=10)
+geomean                   779.8m        763.3m       -2.12%
