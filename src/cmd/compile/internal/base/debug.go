@@ -65,15 +65,15 @@ type DebugFlags struct {
 	WB                    int    `help:"print information about write barriers"`
 	ABIWrap               int    `help:"print information about ABI wrapper generation"`
 	MayMoreStack          string `help:"call named function before all stack growth checks" concurrent:"ok"`
-	PGOCSIDebug           int    `help:"debug profile-guided context-sensitive inline"`
-	PGOCSIThreshold       int    `help:"function cost threshold for context-sensitive inline (default = 40)"`
 	PGODebug              int    `help:"debug profile-guided optimizations"`
 	PGOHash               string `help:"hash value for debugging profile-guided optimizations" concurrent:"ok"`
-	PGOInline             int    `help:"enable profile-guided inlining" concurrent:"ok"`
+	PGOInline             int    `help:"enable profile-guided inlining (1 => default, 2 => multi-level mode)" concurrent:"ok"`
 	PGOInlineCDFThreshold string `help:"cumulative threshold percentage for determining call sites as hot candidates for inlining" concurrent:"ok"`
 	PGOInlineBudget       int    `help:"inline budget for hot functions" concurrent:"ok"`
 	PGODevirtualize       int    `help:"enable profile-guided devirtualization; 0 to disable, 1 to enable interface devirtualization, 2 to enable function devirtualization" concurrent:"ok"`
 	RangeFuncCheck        int    `help:"insert code to check behavior of range iterator functions" concurrent:"ok"`
+	VariableMakeHash      string `help:"hash value for debugging stack allocation of variable-sized make results" concurrent:"ok"`
+	VariableMakeThreshold int    `help:"threshold in bytes for possible stack allocation of variable-sized make results" concurrent:"ok"`
 	WrapGlobalMapDbg      int    `help:"debug trace output for global map init wrapping"`
 	WrapGlobalMapCtl      int    `help:"global map init wrap control (0 => default, 1 => off, 2 => stress mode, no size cutoff)"`
 	ZeroCopy              int    `help:"enable zero-copy string->[]byte conversions" concurrent:"ok"`
