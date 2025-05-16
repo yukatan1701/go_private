@@ -116,6 +116,9 @@ type Profile struct {
 	// WeightedCG represents the IRGraph built from profile, which we will
 	// update as part of inlining.
 	WeightedCG *IRGraph
+
+	// ir.LinkFuncName <-> *ir.Func
+	NameToFunc map[string]*ir.Func
 }
 
 // New generates a profile-graph from the profile or pre-processed profile.
@@ -132,43 +135,38 @@ func New(profileFile string) (*Profile, error) {
 		return nil, fmt.Errorf("error processing profile header: %w", err)
 	}
 
-	var pgoProf *pgo.Profile
+	var baseProf *pgo.Profile
 	if isSerialized {
-		var rcsinl *bufio.Reader = nil
-		pgoProf, err = pgo.FromSerialized(r)
+		baseProf, err = pgo.FromSerialized(r)
 		if err != nil {
 			return nil, fmt.Errorf("error processing serialized PGO profile: %w", err)
 		}
-		if base.Flag.PgoCsinl {
-			fbb, err := os.Open(profileFile + ".pgocsinl")
-			if err != nil {
-				return nil, fmt.Errorf("error opening profile: %w", err)
-			}
-			defer fbb.Close()
-
-			rcsinl = bufio.NewReader(fbb)
-			pgoProf.CSISampleInfo, err = pgo.FromSerializedCsinl(rcsinl)
-			if err != nil {
-				return nil, fmt.Errorf("error processing serialized PGO profile: %w", err)
-			}
-		}
 	} else {
-		pgoProf, err = pgo.FromPProf(r, base.Flag.PgoCsinl)
+		baseProf, err = pgo.FromPProf(r)
 		if err != nil {
 			return nil, fmt.Errorf("error processing pprof PGO profile: %w", err)
 		}
 	}
 
-	if pgoProf.TotalWeight == 0 {
+	if baseProf.TotalWeight == 0 {
 		return nil, nil // accept but ignore profile with no samples.
 	}
 
 	// Create package-level call graph with weights from profile and IR.
-	wg := createIRGraph(pgoProf.NamedEdgeMap)
+	wg := createIRGraph(baseProf.NamedEdgeMap)
+
+	var nameToFunc map[string]*ir.Func
+	if base.Debug.PGOInline == 2 {
+		nameToFunc = make(map[string]*ir.Func)
+		for _, f := range typecheck.Target.Funcs {
+			nameToFunc[ir.LinkFuncName(f)] = f
+		}
+	}
 
 	return &Profile{
-		Profile:    pgoProf,
+		Profile:    baseProf,
 		WeightedCG: wg,
+		NameToFunc: nameToFunc,
 	}, nil
 }
 
