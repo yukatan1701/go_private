@@ -175,8 +175,8 @@ type xRegs struct {
 			typ = "uint64"
 		}
 		name := reg.reg
-		if reg.regPair != "" {
-			name = reg.regPair
+		if reg.xRegsName != "" {
+			name = reg.xRegsName
 		}
 		fmt.Fprintf(g.w, "\t%s %s\n", name, typ)
 		pos += reg.size
@@ -205,7 +205,7 @@ type regPos struct {
 	saveOp    string
 	restoreOp string
 	reg       string
-	regPair   string
+	xRegsName string
 
 	// If this register requires special save and restore, these
 	// give those operations with a %d placeholder for the stack
@@ -223,8 +223,8 @@ func (l *layout) add2(sop, rop, reg string, size int) {
 	l.stack += size
 }
 
-func (l *layout) add2Pair(sop, rop, reg, pair string, size int) {
-	l.regs = append(l.regs, regPos{saveOp: sop, restoreOp: rop, reg: reg, regPair: pair, pos: l.stack, size: size})
+func (l *layout) add2CustomReg(sop, rop, reg, xRegsName string, size int) {
+	l.regs = append(l.regs, regPos{saveOp: sop, restoreOp: rop, reg: reg, xRegsName: xRegsName, pos: l.stack, size: size})
 	l.stack += size
 }
 
@@ -495,7 +495,7 @@ func genARM64(g *gen) {
 	for i := 0; i < 31; i += 2 {
 		reg := fmt.Sprintf("(F%d, F%d)", i, i+1)
 		pair := fmt.Sprintf("F%d_F%d", i, i+1)
-		lQRegs.add2Pair("FSTPD", "FLDPD", reg, pair, 32)
+		lQRegs.add2CustomReg("FSTPD", "FLDPD", reg, pair, 32)
 	}
 	writeXRegs(g.goarch, &lQRegs)
 	if l.stack%16 != 0 {
