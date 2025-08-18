@@ -164,22 +164,20 @@ type xRegs struct {
 `)
 	pos := 0
 	for _, reg := range l.regs {
-		if reg.pos != pos {
-			log.Fatalf("padding not implemented")
+		for _, r := range reg.regs {
+			if r.pos != pos && !reg.noStack {
+				log.Fatalf("padding not implemented")
+			}
+			typ := fmt.Sprintf("[%d]byte", r.size)
+			switch {
+			case r.size == 4 && r.pos%4 == 0:
+				typ = "uint32"
+			case r.size == 8 && r.pos%8 == 0:
+				typ = "uint64"
+			}
+			fmt.Fprintf(g.w, "\t%s %s\n", r.name, typ)
+			pos += r.size
 		}
-		typ := fmt.Sprintf("[%d]byte", reg.size)
-		switch {
-		case reg.size == 4 && reg.pos%4 == 0:
-			typ = "uint32"
-		case reg.size == 8 && reg.pos%8 == 0:
-			typ = "uint64"
-		}
-		name := reg.reg
-		if reg.xRegsName != "" {
-			name = reg.xRegsName
-		}
-		fmt.Fprintf(g.w, "\t%s %s\n", name, typ)
-		pos += reg.size
 	}
 	fmt.Fprintf(g.w, "}\n")
 
@@ -195,17 +193,24 @@ type xRegs struct {
 
 type layout struct {
 	stack int
-	regs  []regPos
+	regs  []regSeq
 	sp    string // stack pointer register
 }
 
-type regPos struct {
-	pos, size int
+type regInfo struct {
+	size   int
+	name   string
+	suffix string
+	pos    int
+}
 
+type regSeq struct {
 	saveOp    string
 	restoreOp string
-	reg       string
-	xRegsName string
+	regs      []regInfo
+	noStack   bool
+
+	parentheses [2]string
 
 	// If this register requires special save and restore, these
 	// give those operations with a %d placeholder for the stack
@@ -213,45 +218,86 @@ type regPos struct {
 	save, restore string
 }
 
-func (l *layout) add(op, reg string, size int) {
-	l.regs = append(l.regs, regPos{saveOp: op, restoreOp: op, reg: reg, pos: l.stack, size: size})
+func (l *layout) add(op, regname string, size int) {
+	l.regs = append(l.regs, regSeq{saveOp: op, restoreOp: op, regs: []regInfo{{size, regname, "", l.stack}}})
 	l.stack += size
 }
 
-func (l *layout) add2(sop, rop, reg string, size int) {
-	l.regs = append(l.regs, regPos{saveOp: sop, restoreOp: rop, reg: reg, pos: l.stack, size: size})
+func (l *layout) add2(sop, rop, regname string, size int) {
+	l.regs = append(l.regs, regSeq{saveOp: sop, restoreOp: rop, regs: []regInfo{{size, regname, "", l.stack}}})
 	l.stack += size
 }
 
-func (l *layout) add2CustomReg(sop, rop, reg, xRegsName string, size int) {
-	l.regs = append(l.regs, regPos{saveOp: sop, restoreOp: rop, reg: reg, xRegsName: xRegsName, pos: l.stack, size: size})
-	l.stack += size
+func (l *layout) add2RegsNoStack(sop, rop string, regs []regInfo, parentheses [2]string) {
+	l.regs = append(l.regs, regSeq{saveOp: sop, restoreOp: rop, regs: regs, parentheses: parentheses, noStack: true})
 }
 
 func (l *layout) addSpecial(save, restore string, size int) {
-	l.regs = append(l.regs, regPos{save: save, restore: restore, pos: l.stack, size: size})
+	l.regs = append(l.regs, regSeq{save: save, restore: restore, regs: []regInfo{{size, "", "", l.stack}}})
 	l.stack += size
+}
+
+func (r *regSeq) string() string {
+	switch len(r.regs) {
+	case 0:
+		log.Fatal("Register sequence must not be empty!")
+	case 1:
+		return r.regs[0].name
+	default:
+		names := make([]string, 0)
+		for _, r := range r.regs {
+			name := r.name + r.suffix
+			names = append(names, name)
+		}
+		return r.parentheses[0] + strings.Join(names, ", ") + r.parentheses[1]
+	}
+	return ""
 }
 
 func (l *layout) save(g *gen) {
 	for _, reg := range l.regs {
+		if len(reg.regs) < 1 {
+			log.Fatal("Register sequence must not be empty!")
+		}
+		pos := reg.regs[0].pos
 		if reg.save != "" {
-			g.p(reg.save, reg.pos)
+			g.p(reg.save, pos)
 		} else {
-			g.p("%s %s, %d(%s)", reg.saveOp, reg.reg, reg.pos, l.sp)
+			name := reg.string()
+			g.p("%s %s, %d(%s)", reg.saveOp, name, pos, l.sp)
+		}
+	}
+}
+
+func (l *layout) restoreInOrder(g *gen, reverse bool) {
+	var regs []regSeq
+	if reverse {
+		regs = make([]regSeq, 0)
+		for i := len(l.regs) - 1; i >= 0; i-- {
+			regs = append(regs, l.regs[i])
+		}
+	} else {
+		regs = l.regs
+	}
+	for _, reg := range regs {
+		if len(reg.regs) < 1 {
+			log.Fatal("Register sequence must not be empty!")
+		}
+		pos := reg.regs[0].pos
+		if reg.restore != "" {
+			g.p(reg.restore, pos)
+		} else {
+			g.p("%s %d(%s), %s", reg.restoreOp, pos, l.sp, reg.string())
 		}
 	}
 }
 
 func (l *layout) restore(g *gen) {
-	for i := len(l.regs) - 1; i >= 0; i-- {
-		reg := l.regs[i]
-		if reg.restore != "" {
-			g.p(reg.restore, reg.pos)
-		} else {
-			g.p("%s %d(%s), %s", reg.restoreOp, reg.pos, l.sp, reg.reg)
-		}
-	}
+	l.restoreInOrder(g, true)
+}
+
+func (l *layout) restoreDirect(g *gen) {
+	l.restoreInOrder(g, false)
 }
 
 func gen386(g *gen) {
@@ -330,8 +376,11 @@ func genAMD64(g *gen) {
 	// We don't have to do this, but it results in a nice Go type. If we split
 	// this into multiple types, we probably should stop doing this.
 	for i := range lXRegs.regs {
-		lXRegs.regs[i].pos = lZRegs.regs[i].pos
-		lYRegs.regs[i].pos = lZRegs.regs[i].pos
+		for j := range lXRegs.regs[i].regs {
+			lXRegs.regs[i].regs[j].pos = lZRegs.regs[i].regs[j].pos
+			lYRegs.regs[i].regs[j].pos = lZRegs.regs[i].regs[j].pos
+		}
+
 	}
 	writeXRegs(g.goarch, &lZRegs)
 
@@ -491,13 +540,17 @@ func genARM64(g *gen) {
 		8)
 	// TODO: FPCR? I don't think we'll change it, so no need to save.
 	// Add floating point registers F0-F31.
-	lQRegs := layout{sp: qReg} // Non-GP registers
-	for i := 0; i < 31; i += 2 {
-		reg := fmt.Sprintf("(F%d, F%d)", i, i+1)
-		pair := fmt.Sprintf("F%d_F%d", i, i+1)
-		lQRegs.add2CustomReg("FSTPD", "FLDPD", reg, pair, 32)
+	lVRegs := layout{sp: qReg} // Non-GP registers
+	for i := 0; i < 31; i += 4 {
+		regs := []regInfo{
+			{name: fmt.Sprintf("V%d", i), suffix: ".B16", size: 16, pos: 64},
+			{name: fmt.Sprintf("V%d", i+1), suffix: ".B16", size: 16, pos: 64},
+			{name: fmt.Sprintf("V%d", i+2), suffix: ".B16", size: 16, pos: 64},
+			{name: fmt.Sprintf("V%d", i+3), suffix: ".B16", size: 16, pos: 64},
+		}
+		lVRegs.add2RegsNoStack("VST1.P", "VLD1.P", regs, [2]string{"[", "]"})
 	}
-	writeXRegs(g.goarch, &lQRegs)
+	writeXRegs(g.goarch, &lVRegs)
 	if l.stack%16 != 0 {
 		l.stack += 8 // SP needs 16-byte alignment
 	}
@@ -528,13 +581,13 @@ func genARM64(g *gen) {
 	p("MOVD g_m(g), %s", qReg)
 	p("MOVD m_p(%s), %s", qReg, qReg)
 	p("ADD $(p_xRegs+xRegPerP_scratch), %s, %s", qReg, qReg)
-	lQRegs.save(g)
+	lVRegs.save(g)
 	p("CALL ·asyncPreempt2(SB)")
 	p("// Restore non-GPs from *p.xRegs.cache")
 	p("MOVD g_m(g), %s", qReg)
 	p("MOVD m_p(%s), %s", qReg, qReg)
 	p("MOVD (p_xRegs+xRegPerP_cache)(%s), %s", qReg, qReg)
-	lQRegs.restore(g)
+	lVRegs.restoreDirect(g)
 	p("// Restore GPs")
 	l.restore(g)
 
