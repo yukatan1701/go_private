@@ -364,6 +364,8 @@ var debug struct {
 	// tracebacklabels controls the inclusion of goroutine labels in the
 	// goroutine status header line.
 	tracebacklabels atomic.Int32
+
+	tracegrowslice atomic.Int32
 }
 
 var dbgvars = []*dbgVar{
@@ -400,6 +402,7 @@ var dbgvars = []*dbgVar{
 	{name: "tracebackancestors", value: &debug.tracebackancestors},
 	{name: "tracebacklabels", atomic: &debug.tracebacklabels, def: 0},
 	{name: "tracefpunwindoff", value: &debug.tracefpunwindoff},
+	{name: "tracegrowslice", atomic: &debug.tracegrowslice},
 	{name: "updatemaxprocs", value: &debug.updatemaxprocs, def: 1},
 }
 

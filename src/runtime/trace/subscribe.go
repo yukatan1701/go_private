@@ -24,6 +24,7 @@ type traceMultiplexer struct {
 	subscribersMu    sync.Mutex
 	traceStartWriter io.Writer
 	flightRecorder   *recorder
+	traceSlice       bool
 }
 
 func (t *traceMultiplexer) subscribeFlightRecorder(r *recorder) error {
@@ -65,7 +66,7 @@ func (t *traceMultiplexer) unsubscribeFlightRecorder() error {
 	return nil
 }
 
-func (t *traceMultiplexer) subscribeTraceStartWriter(w io.Writer) error {
+func (t *traceMultiplexer) subscribeTraceStartWriter(w io.Writer, slice bool) error {
 	t.Lock()
 	defer t.Unlock()
 
@@ -75,12 +76,14 @@ func (t *traceMultiplexer) subscribeTraceStartWriter(w io.Writer) error {
 		return fmt.Errorf("execution tracer already enabled")
 	}
 	t.traceStartWriter = w
+	t.traceSlice = slice
 	t.subscribersMu.Unlock()
 
 	if err := t.addedSubscriber(); err != nil {
 		t.subscribersMu.Lock()
 		t.traceStartWriter = nil
 		t.subscribersMu.Unlock()
+		t.traceSlice = false
 		return err
 	}
 	return nil
@@ -98,6 +101,7 @@ func (t *traceMultiplexer) unsubscribeTraceStartWriter() {
 		return
 	}
 	t.traceStartWriter = nil
+	t.traceSlice = false
 	t.subscribersMu.Unlock()
 
 	t.removedSubscriber()
@@ -139,7 +143,7 @@ func (t *traceMultiplexer) removedSubscriber() {
 }
 
 func (t *traceMultiplexer) startLocked() error {
-	if err := runtime.StartTrace(); err != nil {
+	if err := runtime.StartTrace(t.traceSlice); err != nil {
 		return err
 	}
 

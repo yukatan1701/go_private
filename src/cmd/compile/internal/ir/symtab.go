@@ -32,6 +32,7 @@ type symsStruct struct {
 	GrowsliceBuf              *obj.LSym
 	GrowsliceBufNoAlias       *obj.LSym
 	GrowsliceNoAlias          *obj.LSym
+	GrowsliceSpecial          *obj.LSym
 	MoveSlice                 *obj.LSym
 	MoveSliceNoScan           *obj.LSym
 	MoveSliceNoCap            *obj.LSym

@@ -7,6 +7,7 @@ package main
 import (
 	"cmd/internal/browser"
 	"cmd/internal/telemetry/counter"
+	"cmd/trace/extra"
 	"cmp"
 	"flag"
 	"fmt"
@@ -50,6 +51,7 @@ Flags:
 	-http=addr: HTTP service address (e.g., ':6060')
 	-pprof=type: print a pprof-like profile instead
 	-d=mode: print debug info and exit (modes: wire, parsed, footprint)
+	-profextra=mode: generate a profile with extra data (modes: slice)
 
 Note that while the various profiles available when launching
 'go tool trace' work on every browser, the trace viewer itself
@@ -61,6 +63,7 @@ var (
 	httpFlag  = flag.String("http", "localhost:0", "HTTP service address (e.g., ':6060')")
 	pprofFlag = flag.String("pprof", "", "print a pprof-like profile instead")
 	debugFlag = flag.String("d", "", "print debug info and exit (modes: wire, parsed, footprint)")
+	profExtra = flag.String("profextra", "", "generate a profile with extra data (modes: slice)")
 
 	// The binary file name, left here for serveSVGProfile.
 	programBinary string
@@ -129,6 +132,15 @@ func main() {
 			logAndDie(fmt.Errorf("failed to generate pprof: %v\n", err))
 		}
 		logAndDie(nil)
+	}
+
+	if *profExtra != "" {
+		switch *profExtra {
+		case "slice":
+			logAndDie(extra.ProcessExtraTrace(tracef))
+		default:
+			logAndDie(fmt.Errorf("invalid profextra mode %s, want one of: slice", *profExtra))
+		}
 	}
 
 	// Debug flags.

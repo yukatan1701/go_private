@@ -116,7 +116,15 @@ import (
 // While tracing, the trace will be buffered and written to w.
 // Start returns an error if tracing is already enabled.
 func Start(w io.Writer) error {
-	return tracing.subscribeTraceStartWriter(w)
+	return tracing.subscribeTraceStartWriter(w, false)
+}
+
+// StartWithSlice enables tracing for the current program
+// including growslice statistics.
+// While tracing, the trace will be buffered and written to w.
+// Start returns an error if tracing is already enabled.
+func StartWithSlice(w io.Writer) error {
+	return tracing.subscribeTraceStartWriter(w, true)
 }
 
 // Stop stops the current tracing, if any.

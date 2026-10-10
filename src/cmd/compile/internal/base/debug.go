@@ -65,6 +65,7 @@ type DebugFlags struct {
 	Reshape               int    `help:"print information about expression reshaping"`
 	Shapify               int    `help:"print information about shaping recursive types"`
 	Slice                 int    `help:"print information about slice compilation"`
+	SliceProfDebug        int    `help:"debug growsliceprofile"`
 	SoftFloat             int    `help:"force compiler to emit soft-float code" concurrent:"ok"`
 	StaticCopy            int    `help:"print information about missed static copies" concurrent:"ok"`
 	SyncFrames            int    `help:"how many writer stack frames to include at sync points in unified export data"`

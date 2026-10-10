@@ -301,6 +301,8 @@ var trace struct {
 
 	// debugMalloc is the value of debug.malloc before tracing began.
 	debugMalloc bool
+
+	enabledGrowslice bool
 }
 
 // Trace public API.
@@ -315,7 +317,7 @@ var (
 // StartTrace returns an error if tracing is already enabled.
 // Most clients should use the [runtime/trace] package or the [testing] package's
 // -test.trace flag instead of calling StartTrace directly.
-func StartTrace() error {
+func StartTrace(traceSlice bool) error {
 	if traceEnabled() || traceShuttingDown() {
 		return errorString("tracing is already enabled")
 	}
@@ -394,12 +396,16 @@ func StartTrace() error {
 	//
 	// After trace.gen is updated, other Ms may start creating trace buffers and emitting
 	// data into them.
+	trace.enabledGrowslice = traceSlice
 	trace.enabled = true
 	if debug.traceallocfree.Load() != 0 {
 		// Enable memory events since the GODEBUG is set.
 		trace.debugMalloc = debug.malloc
 		trace.enabledWithAllocFree = true
 		debug.malloc = true
+	}
+	if debug.tracegrowslice.Load() != 0 {
+		trace.enabledGrowslice = true
 	}
 	trace.gen.Store(firstGen)
 
@@ -598,6 +604,7 @@ func traceAdvance(stopTrace bool) {
 			trace.gen.Store(0)
 			unlock(&trace.lock)
 
+			trace.enabledGrowslice = false
 			// Clear trace.enabled. It is totally OK for this value to be stale,
 			// because traceAcquire will always double-check gen.
 			trace.enabled = false
@@ -780,6 +787,7 @@ func traceAdvance(stopTrace bool) {
 			trace.enabledWithAllocFree = false
 			debug.malloc = trace.debugMalloc
 		}
+		trace.enabledGrowslice = false
 	}
 
 	// Block until the trace reader has finished processing the last generation.

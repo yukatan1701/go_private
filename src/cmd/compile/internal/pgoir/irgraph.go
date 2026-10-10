@@ -52,6 +52,8 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // IRGraph is a call graph with nodes pointing to IRs of functions and edges
@@ -116,6 +118,27 @@ type Profile struct {
 	// WeightedCG represents the IRGraph built from profile, which we will
 	// update as part of inlining.
 	WeightedCG *IRGraph
+}
+
+type GrowsliceStat struct {
+	//Line     int
+	StartCap int
+	EndCap   int
+}
+
+type GrowsliceCallsite struct {
+	Func string
+	Line int
+}
+
+type GrowsliceNode struct {
+	Callsite GrowsliceCallsite
+	Callers  map[GrowsliceCallsite]*GrowsliceNode
+	Stat     GrowsliceStat
+}
+
+type SliceProfile struct {
+	DepthTrees []map[GrowsliceCallsite]*GrowsliceNode
 }
 
 // New generates a profile-graph from the profile or pre-processed profile.
@@ -500,4 +523,169 @@ func DirectCallee(fn ir.Node) *ir.Func {
 		return c
 	}
 	return nil
+}
+
+func NewSlice(profileFile string) (*SliceProfile, error) {
+	const wantSliceHdr = "EXTRA TRACE PROFILE V1\n"
+	f, err := os.Open(profileFile)
+	if err != nil {
+		return nil, fmt.Errorf("error opening profile: %w", err)
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	scanner := bufio.NewScanner(r)
+	scanner.Split(bufio.ScanLines)
+
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("error reading slice profile: %w", err)
+		}
+		return nil, fmt.Errorf("slice profile missing header")
+	}
+	if gotHdr := scanner.Text() + "\n"; gotHdr != wantSliceHdr {
+		return nil, fmt.Errorf("slice profile malformed header; got %q, want %q", gotHdr, wantSliceHdr)
+	}
+
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("error reading slice profile: %w", err)
+		}
+		return nil, fmt.Errorf("slice profile structure error")
+	}
+	funcNumber, err := strconv.Atoi(scanner.Text())
+	if err != nil {
+		return nil, fmt.Errorf("error reading slice profile: %w", err)
+	}
+
+	idToFunc := make(map[int]string)
+	for i := 0; i < funcNumber; i++ {
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+			}
+		}
+		line := scanner.Text()
+		tokens := strings.SplitN(line, " ", 2)
+		if len(tokens) < 2 {
+			return nil, fmt.Errorf("slice profile is corrupted: expected 2 arguments, got %d", len(tokens))
+		}
+		id, err := strconv.Atoi(tokens[0])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		idToFunc[id] = tokens[1]
+	}
+
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+	}
+	maxDepth, err := strconv.Atoi(scanner.Text())
+	if err != nil {
+		return nil, fmt.Errorf("error reading slice profile: %w", err)
+	}
+
+	sp := SliceProfile{
+		DepthTrees: make([]map[GrowsliceCallsite]*GrowsliceNode, 0, maxDepth),
+	}
+
+	for depth := 1; depth <= maxDepth; depth++ {
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+			}
+		}
+		stackNum, err := strconv.Atoi(scanner.Text())
+		if err != nil {
+			return nil, fmt.Errorf("error reading slice profile: %w", err)
+		}
+
+		tree := make(map[GrowsliceCallsite]*GrowsliceNode)
+		for j := 0; j < stackNum; j++ {
+			if !scanner.Scan() {
+				if err := scanner.Err(); err != nil {
+					return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+				}
+			}
+			line := scanner.Text()
+			tokens := strings.Split(line, " ")
+			tokIndex := 0
+			stackLen, err := strconv.Atoi(tokens[tokIndex])
+			if err != nil {
+				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+			}
+			tokIndex++
+			var prev, cur *GrowsliceNode
+			for k := 0; k < stackLen; k++ {
+				// read frame (func_id + line_num)
+				funcId, err := strconv.Atoi(tokens[tokIndex])
+				if err != nil {
+					return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+				}
+				line, err := strconv.Atoi(tokens[tokIndex+1])
+				if err != nil {
+					return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+				}
+				tokIndex += 2
+
+				fname, ok := idToFunc[funcId]
+				if !ok {
+					return nil, fmt.Errorf("slice profile is corrupted: function with id=%d is not found", funcId)
+				}
+				cs := GrowsliceCallsite{Func: fname, Line: line}
+				if k == 0 {
+					if _, ok := tree[cs]; !ok {
+						tree[cs] = &GrowsliceNode{Callsite: cs, Callers: make(map[GrowsliceCallsite]*GrowsliceNode)}
+					}
+					cur = tree[cs]
+				} else {
+					// Check previous node
+					if _, ok := prev.Callers[cs]; !ok {
+						prev.Callers[cs] = &GrowsliceNode{Callsite: cs, Callers: make(map[GrowsliceCallsite]*GrowsliceNode)}
+					}
+					cur = prev.Callers[cs]
+				}
+				prev = cur
+			}
+			startCap, err := strconv.Atoi(tokens[tokIndex])
+			if err != nil {
+				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+			}
+			tokIndex++
+			endCap, err := strconv.Atoi(tokens[tokIndex])
+			if err != nil {
+				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+			}
+			prev.Stat.StartCap = startCap
+			prev.Stat.EndCap = endCap
+			tokIndex++
+		}
+		sp.DepthTrees = append(sp.DepthTrees, tree)
+	}
+
+	var printNode func(n *GrowsliceNode, depth int)
+	printNode = func(n *GrowsliceNode, depth int) {
+		prefix := strings.Repeat(". ", depth)
+		fmt.Printf("%s%s:%d", prefix, n.Callsite.Func, n.Callsite.Line)
+		if len(n.Callers) == 0 {
+			fmt.Printf(" (start=%d, end=%d)\n", n.Stat.StartCap, n.Stat.EndCap)
+		} else {
+			fmt.Printf("\n")
+		}
+		for _, caller := range n.Callers {
+			printNode(caller, depth+1)
+		}
+	}
+
+	if base.Debug.SliceProfDebug > 1 {
+		fmt.Printf("Loaded slice profile:\n")
+		for i, tree := range sp.DepthTrees {
+			fmt.Printf("Depth %d:\n", i+1)
+			for _, root := range tree {
+				printNode(root, 0)
+			}
+		}
+	}
+	return &sp, nil
 }

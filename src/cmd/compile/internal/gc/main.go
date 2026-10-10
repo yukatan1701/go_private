@@ -243,6 +243,15 @@ func Main(archInit func(*ssagen.ArchInfo)) {
 		}
 	}
 
+	var sliceProfile *pgoir.SliceProfile
+	if base.Flag.SliceProfile != "" {
+		var err error
+		sliceProfile, err = pgoir.NewSlice(base.Flag.SliceProfile)
+		if err != nil {
+			log.Fatalf("%s: PGO error: %v", base.Flag.SliceProfile, err)
+		}
+	}
+
 	// Apply bloop markings.
 	bloop.BloopWalk(typecheck.Target)
 
@@ -267,6 +276,8 @@ func Main(archInit func(*ssagen.ArchInfo)) {
 	symABIs.GenABIWrappers()
 
 	deadlocals.Funcs(typecheck.Target.Funcs)
+
+	pgoir.LoadAppendCounters(typecheck.Target.Funcs, sliceProfile)
 
 	// Escape analysis.
 	// Required for moving heap allocations onto stack,

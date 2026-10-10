@@ -1227,6 +1227,7 @@ var tracev2Type2Kind = [...]EventKind{
 	tracev2.EvGoroutineStack:      EventExperimental,
 	tracev2.EvGoroutineStackAlloc: EventExperimental,
 	tracev2.EvGoroutineStackFree:  EventExperimental,
+	tracev2.EvGrowslice:           EventExperimental,
 	evSync:                        EventSync,
 }
 
