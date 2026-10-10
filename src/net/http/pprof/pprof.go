@@ -173,6 +173,15 @@ func Trace(w http.ResponseWriter, r *http.Request) {
 	if sec <= 0 || err != nil {
 		sec = 1
 	}
+	sliceEnabled := 0
+	if r.FormValue("slice") != "" {
+		sliceEnabled, err = strconv.Atoi(r.FormValue("slice"))
+		if err != nil {
+			serveError(w, http.StatusInternalServerError,
+				fmt.Sprintf("invalid slice value: %s", err))
+			return
+		}
+	}
 
 	configureWriteDeadline(w, r, sec)
 
@@ -180,11 +189,20 @@ func Trace(w http.ResponseWriter, r *http.Request) {
 	// because if it does it starts writing.
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", `attachment; filename="trace"`)
-	if err := trace.Start(w); err != nil {
-		// trace.Start failed, so no writes yet.
-		serveError(w, http.StatusInternalServerError,
-			fmt.Sprintf("Could not enable tracing: %s", err))
-		return
+	if sliceEnabled > 0 {
+		if err := trace.StartWithSlice(w); err != nil {
+			// trace.Start failed, so no writes yet.
+			serveError(w, http.StatusInternalServerError,
+				fmt.Sprintf("Could not enable tracing: %s", err))
+			return
+		}
+	} else {
+		if err := trace.Start(w); err != nil {
+			// trace.Start failed, so no writes yet.
+			serveError(w, http.StatusInternalServerError,
+				fmt.Sprintf("Could not enable tracing: %s", err))
+			return
+		}
 	}
 	sleep(r, time.Duration(sec*float64(time.Second)))
 	trace.Stop()
