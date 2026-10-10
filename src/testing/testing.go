@@ -2796,10 +2796,18 @@ func (m *M) before() {
 			fmt.Fprintf(os.Stderr, "testing: %s\n", err)
 			return
 		}
-		if err := trace.Start(f); err != nil {
-			fmt.Fprintf(os.Stderr, "testing: can't start tracing: %s\n", err)
-			f.Close()
-			return
+		if *traceSlice {
+			if err := trace.StartWithSlice(f); err != nil {
+				fmt.Fprintf(os.Stderr, "testing: can't start tracing: %s\n", err)
+				f.Close()
+				return
+			}
+		} else {
+			if err := trace.Start(f); err != nil {
+				fmt.Fprintf(os.Stderr, "testing: can't start tracing: %s\n", err)
+				f.Close()
+				return
+			}
 		}
 		// Could save f so after can call f.Close; not worth the effort.
 	}

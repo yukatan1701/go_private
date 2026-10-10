@@ -283,6 +283,14 @@ func growslice(oldPtr unsafe.Pointer, newLen, oldCap, num int, et *_type) slice 
 	}
 	memmove(p, oldPtr, lenmem)
 
+	if traceGrowsliceEnabled() {
+		trace := traceAcquire()
+		if trace.ok() {
+			trace.Growslice(uintptr(oldPtr), uintptr(p), oldCap, newcap)
+			traceRelease(trace)
+		}
+	}
+
 	return slice{p, newLen, newcap}
 }
 
