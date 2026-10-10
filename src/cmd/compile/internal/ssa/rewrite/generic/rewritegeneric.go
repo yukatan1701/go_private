@@ -34058,7 +34058,7 @@ func rewriteValue_OpSelectN(v *ssa.Value) bool {
 		return true
 	}
 	// match: (SelectN [1] (StaticCall {sym} _ newLen:(Const64) _ _ _ _))
-	// cond: v.Type.IsInteger() && (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias"))
+	// cond: v.Type.IsInteger() && (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial"))
 	// result: newLen
 	for {
 		if ssa.AuxIntToInt64(v.AuxInt) != 1 || v_0.Op != ssaop.OpStaticCall || len(v_0.Args) != 6 {
@@ -34067,14 +34067,14 @@ func rewriteValue_OpSelectN(v *ssa.Value) bool {
 		sym := ssa.AuxToCall(v_0.Aux)
 		_ = v_0.Args[1]
 		newLen := v_0.Args[1]
-		if newLen.Op != ssaop.OpConst64 || !(v.Type.IsInteger() && (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias"))) {
+		if newLen.Op != ssaop.OpConst64 || !(v.Type.IsInteger() && (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial"))) {
 			break
 		}
 		v.CopyOf(newLen)
 		return true
 	}
 	// match: (SelectN [1] (StaticCall {sym} _ newLen:(Const32) _ _ _ _))
-	// cond: v.Type.IsInteger() && (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias"))
+	// cond: v.Type.IsInteger() && (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial"))
 	// result: newLen
 	for {
 		if ssa.AuxIntToInt64(v.AuxInt) != 1 || v_0.Op != ssaop.OpStaticCall || len(v_0.Args) != 6 {
@@ -34083,7 +34083,7 @@ func rewriteValue_OpSelectN(v *ssa.Value) bool {
 		sym := ssa.AuxToCall(v_0.Aux)
 		_ = v_0.Args[1]
 		newLen := v_0.Args[1]
-		if newLen.Op != ssaop.OpConst32 || !(v.Type.IsInteger() && (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias"))) {
+		if newLen.Op != ssaop.OpConst32 || !(v.Type.IsInteger() && (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial"))) {
 			break
 		}
 		v.CopyOf(newLen)
@@ -34574,7 +34574,7 @@ func rewriteValue_OpSliceLen(v *ssa.Value) bool {
 		return true
 	}
 	// match: (SliceLen (SelectN [0] (StaticLECall {sym} _ newLen:(Const64) _ _ _ _)))
-	// cond: (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias"))
+	// cond: (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial"))
 	// result: newLen
 	for {
 		if v_0.Op != ssaop.OpSelectN || ssa.AuxIntToInt64(v_0.AuxInt) != 0 {
@@ -34587,14 +34587,14 @@ func rewriteValue_OpSliceLen(v *ssa.Value) bool {
 		sym := ssa.AuxToCall(v_0_0.Aux)
 		_ = v_0_0.Args[1]
 		newLen := v_0_0.Args[1]
-		if newLen.Op != ssaop.OpConst64 || !(ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias")) {
+		if newLen.Op != ssaop.OpConst64 || !(ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial")) {
 			break
 		}
 		v.CopyOf(newLen)
 		return true
 	}
 	// match: (SliceLen (SelectN [0] (StaticLECall {sym} _ newLen:(Const32) _ _ _ _)))
-	// cond: (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias"))
+	// cond: (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial"))
 	// result: newLen
 	for {
 		if v_0.Op != ssaop.OpSelectN || ssa.AuxIntToInt64(v_0.AuxInt) != 0 {
@@ -34607,7 +34607,7 @@ func rewriteValue_OpSliceLen(v *ssa.Value) bool {
 		sym := ssa.AuxToCall(v_0_0.Aux)
 		_ = v_0_0.Args[1]
 		newLen := v_0_0.Args[1]
-		if newLen.Op != ssaop.OpConst32 || !(ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias")) {
+		if newLen.Op != ssaop.OpConst32 || !(ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial")) {
 			break
 		}
 		v.CopyOf(newLen)

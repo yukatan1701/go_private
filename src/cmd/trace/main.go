@@ -7,6 +7,7 @@ package main
 import (
 	"cmd/internal/browser"
 	"cmd/internal/telemetry/counter"
+	"cmd/trace/extra"
 	"cmp"
 	"flag"
 	"fmt"
@@ -51,6 +52,7 @@ Flags:
 	-http=addr: HTTP server listen address (e.g., ':6060')
 	-pprof=type: print a pprof-like profile instead
 	-d=mode: print debug info and exit (modes: wire, parsed, footprint)
+	-profextra=mode: generate a profile with extra data (modes: slice)
 
 When providing only a port to -http (e.g., ':6060'), the tool listens only on localhost.
 To listen on all addresses, explicitly add the unspecified address (e.g., '0.0.0.0:6060').
@@ -62,9 +64,11 @@ and is only actively tested on that browser.
 `
 
 var (
-	httpFlag  = flag.String("http", "localhost:0", "HTTP server listen address (e.g., ':6060')")
-	pprofFlag = flag.String("pprof", "", "print a pprof-like profile instead")
-	debugFlag = flag.String("d", "", "print debug info and exit (modes: wire, parsed, footprint)")
+	httpFlag      = flag.String("http", "localhost:0", "HTTP server listen address (e.g., ':6060')")
+	pprofFlag     = flag.String("pprof", "", "print a pprof-like profile instead")
+	debugFlag     = flag.String("d", "", "print debug info and exit (modes: wire, parsed, footprint)")
+	profExtra     = flag.String("profextra", "", "generate a profile with extra data (modes: slice)")
+	traceListFile = flag.String("tracelistfile", "", "file containing trace file names")
 
 	// The binary file name, left here for serveSVGProfile.
 	programBinary string
@@ -133,6 +137,15 @@ func main() {
 			logAndDie(fmt.Errorf("failed to generate pprof: %v\n", err))
 		}
 		logAndDie(nil)
+	}
+
+	if *profExtra != "" {
+		switch *profExtra {
+		case "slice":
+			logAndDie(extra.ProcessExtraTrace(tracef, *traceListFile))
+		default:
+			logAndDie(fmt.Errorf("invalid profextra mode %s, want one of: slice", *profExtra))
+		}
 	}
 
 	// Debug flags.

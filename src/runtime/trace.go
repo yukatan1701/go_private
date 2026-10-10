@@ -301,6 +301,8 @@ var trace struct {
 
 	// debugMalloc is the value of debug.malloc before tracing began.
 	debugMalloc bool
+
+	enabledGrowslice bool
 }
 
 // Trace public API.
@@ -400,6 +402,9 @@ func StartTrace() error {
 		trace.debugMalloc = debug.malloc
 		trace.enabledWithAllocFree = true
 		debug.malloc = true
+	}
+	if debug.tracegrowslice.Load() != 0 {
+		trace.enabledGrowslice = true
 	}
 	trace.gen.Store(firstGen)
 
@@ -598,6 +603,7 @@ func traceAdvance(stopTrace bool) {
 			trace.gen.Store(0)
 			unlock(&trace.lock)
 
+			trace.enabledGrowslice = false
 			// Clear trace.enabled. It is totally OK for this value to be stale,
 			// because traceAcquire will always double-check gen.
 			trace.enabled = false
@@ -780,6 +786,7 @@ func traceAdvance(stopTrace bool) {
 			trace.enabledWithAllocFree = false
 			debug.malloc = trace.debugMalloc
 		}
+		trace.enabledGrowslice = false
 	}
 
 	// Block until the trace reader has finished processing the last generation.

@@ -104,7 +104,7 @@ func (w *walkState) walkAppend(n *ir.CallExpr, init *ir.Nodes, dst ir.Node) ir.N
 
 	// else { s = growslice(s.ptr, n, s.cap, a, T) }
 	nif.Else = []ir.Node{
-		ir.NewAssignStmt(base.Pos, s, w.walkGrowslice(s, nif.PtrInit(),
+		ir.NewAssignStmt(base.Pos, s, w.walkGrowslice(n, s, nif.PtrInit(),
 			ir.NewUnaryExpr(base.Pos, ir.OSPTR, s),
 			newLen,
 			ir.NewUnaryExpr(base.Pos, ir.OCAP, s),
@@ -128,10 +128,20 @@ func (w *walkState) walkAppend(n *ir.CallExpr, init *ir.Nodes, dst ir.Node) ir.N
 }
 
 // growslice(ptr *T, newLen, oldCap, num int, <type>) (ret []T)
-func (w *walkState) walkGrowslice(slice *ir.Name, init *ir.Nodes, oldPtr, newLen, oldCap, num ir.Node) *ir.CallExpr {
+func (w *walkState) walkGrowslice(call *ir.CallExpr, slice *ir.Name, init *ir.Nodes, oldPtr, newLen, oldCap, num ir.Node) *ir.CallExpr {
 	elemtype := slice.Type().Elem()
-	fn := typecheck.LookupRuntime("growslice", elemtype, elemtype)
 	elemtypeptr := reflectdata.TypePtrAt(w.curfunc, base.Pos, elemtype)
+	if call.AppendInfo != nil {
+		if base.Debug.SliceProfDebug > 0 {
+			fmt.Printf("%v: %v: generate growsliceSpecial (stage=walk) (startCap=%d, predictedCap=%d)\n",
+				ir.Line(call), ir.FuncName(w.curfunc), call.AppendInfo.StartCap, call.AppendInfo.PredictedCap)
+		}
+		fn := typecheck.LookupRuntime("growsliceSpecial", elemtype, elemtype)
+		startCap := ir.NewInt(base.Pos, int64(call.AppendInfo.StartCap))
+		predCap := ir.NewInt(base.Pos, int64(call.AppendInfo.PredictedCap))
+		return w.mkcall1(fn, slice.Type(), init, oldPtr, newLen, oldCap, num, elemtypeptr, startCap, predCap)
+	}
+	fn := typecheck.LookupRuntime("growslice", elemtype, elemtype)
 	return w.mkcall1(fn, slice.Type(), init, oldPtr, newLen, oldCap, num, elemtypeptr)
 }
 

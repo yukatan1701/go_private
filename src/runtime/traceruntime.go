@@ -160,6 +160,14 @@ func traceAllocFreeEnabled() bool {
 	return trace.enabledWithAllocFree
 }
 
+// traceGrowslice returns true if the trace is currently enabled
+// and alloc/free events are also enabled.
+//
+//go:nosplit
+func traceGrowsliceEnabled() bool {
+	return trace.enabledGrowslice
+}
+
 // traceShuttingDown returns true if the trace is currently shutting down.
 func traceShuttingDown() bool {
 	return trace.shutdown.Load()
@@ -711,4 +719,13 @@ func traceThreadDestroy(mp *m) {
 		unlock(&trace.lock)
 	})
 	mp.trace.writing.Store(false)
+}
+
+// HeapGoal reads the current heap goal and emits a HeapGoal event.
+func (tl traceLocker) Growslice(oldPtr, newPtr uintptr, oldCap, newCap int) {
+	tl.eventWriter(tracev2.GoRunning, tracev2.ProcRunning).event(
+		tracev2.EvGrowslice,
+		traceArg(uint64(oldPtr)), traceArg(uint64(newPtr)),
+		traceArg(uint64(oldCap)), traceArg(uint64(newCap)),
+		tl.stack(3))
 }

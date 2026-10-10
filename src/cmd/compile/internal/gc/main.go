@@ -247,6 +247,15 @@ func Main(archInit func(*ssagen.ArchInfo)) {
 		}
 	}
 
+	var sliceProfile *pgoir.SliceProfile
+	if base.Flag.SliceProfile != "" {
+		var err error
+		sliceProfile, err = pgoir.NewSlice(base.Flag.SliceProfile)
+		if err != nil {
+			log.Fatalf("%s: PGO error: %v", base.Flag.SliceProfile, err)
+		}
+	}
+
 	for _, fn := range typecheck.Target.Funcs {
 		if ir.MatchAstDump(fn, "start") {
 			ir.AstDump(fn, "start, "+ir.FuncName(fn))
@@ -286,6 +295,8 @@ func Main(archInit func(*ssagen.ArchInfo)) {
 	preassignSymIdxs(symABIs)
 
 	deadlocals.Funcs(typecheck.Target.Funcs)
+
+	pgoir.LoadAppendStatistics(typecheck.Target.Funcs, sliceProfile)
 
 	// Escape analysis.
 	// Required for moving heap allocations onto stack,

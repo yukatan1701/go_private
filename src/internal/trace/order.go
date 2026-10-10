@@ -165,6 +165,9 @@ var orderingDispatch = [256]orderingHandleFunc{
 	tracev2.EvGoroutineStack:      (*ordering).advanceAllocFree,
 	tracev2.EvGoroutineStackAlloc: (*ordering).advanceAllocFree,
 	tracev2.EvGoroutineStackFree:  (*ordering).advanceAllocFree,
+
+	// Experimental slice growing events.
+	tracev2.EvGrowslice: (*ordering).advanceGrowslice,
 }
 
 func (o *ordering) advanceProcStatus(ev *baseEvent, evt *evTable, m ThreadID, gen uint64, curCtx schedCtx) (schedCtx, bool, error) {
@@ -1083,6 +1086,15 @@ func (o *ordering) advanceGoRangeEnd(ev *baseEvent, evt *evTable, m ThreadID, ge
 func (o *ordering) advanceAllocFree(ev *baseEvent, evt *evTable, m ThreadID, gen uint64, curCtx schedCtx) (schedCtx, bool, error) {
 	// Handle simple instantaneous events that may or may not have a P.
 	if err := validateCtx(curCtx, schedReqs{M: mustHave, P: mayHave, G: mayHave}); err != nil {
+		return curCtx, false, err
+	}
+	o.queue.push(Event{table: evt, ctx: curCtx, base: *ev})
+	return curCtx, true, nil
+}
+
+func (o *ordering) advanceGrowslice(ev *baseEvent, evt *evTable, m ThreadID, gen uint64, curCtx schedCtx) (schedCtx, bool, error) {
+	// Handle simple instantaneous events that require a G.
+	if err := validateCtx(curCtx, userGoReqs); err != nil {
 		return curCtx, false, err
 	}
 	o.queue.push(Event{table: evt, ctx: curCtx, base: *ev})

@@ -102,6 +102,7 @@ func (ev EventType) Experimental() bool {
 const (
 	// AllocFree is the alloc-free events experiment.
 	AllocFree Experiment = 1 + iota
+	Growslice
 
 	NumExperiments
 )
@@ -113,6 +114,7 @@ func Experiments() []string {
 var experiments = [...]string{
 	NoExperiment: "None",
 	AllocFree:    "AllocFree",
+	Growslice:    "Growslice",
 }
 
 // Experimental events.
@@ -136,13 +138,16 @@ const (
 	EvGoroutineStackAlloc // stack alloc [timestamp, id, order]
 	EvGoroutineStackFree  // stack free [timestamp, id]
 
+	// Experimental slice growing event.
+	EvGrowslice
+
 	MaxExperimentalEvent
 )
 
 const NumExperimentalEvents = MaxExperimentalEvent - MaxEvent
 
 // MaxTimedEventArgs is the maximum number of arguments for timed events.
-const MaxTimedEventArgs = 5
+const MaxTimedEventArgs = 6
 
 func Specs() []EventSpec {
 	return specs[:]
@@ -494,6 +499,13 @@ var specs = [...]EventSpec{
 		Args:         []string{"dt", "id"},
 		IsTimedEvent: true,
 		Experiment:   AllocFree,
+	},
+	EvGrowslice: {
+		Name:         "Growslice",
+		Args:         []string{"dt", "oldPtr", "newPtr", "oldCap", "newCap", "stack"},
+		IsTimedEvent: true,
+		StackIDs:     []int{5},
+		Experiment:   Growslice,
 	},
 }
 
