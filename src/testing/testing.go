@@ -473,6 +473,7 @@ func Init() {
 	mutexProfileFraction = flag.Int("test.mutexprofilefraction", 1, "if >= 0, calls runtime.SetMutexProfileFraction()")
 	panicOnExit0 = flag.Bool("test.paniconexit0", false, "panic on call to os.Exit(0)")
 	traceFile = flag.String("test.trace", "", "write an execution trace to `file`")
+	traceSlice = flag.Bool("test.traceslice", false, "write extra execution trace for growslice")
 	timeout = flag.Duration("test.timeout", 0, "panic test binary after duration `d` (default 0, timeout disabled)")
 	cpuListStr = flag.String("test.cpu", "", "comma-separated `list` of cpu counts to run each test with")
 	parallel = flag.Int("test.parallel", runtime.GOMAXPROCS(0), "run at most `n` tests in parallel")
@@ -506,6 +507,7 @@ var (
 	mutexProfileFraction *int
 	panicOnExit0         *bool
 	traceFile            *string
+	traceSlice           *bool
 	timeout              *time.Duration
 	cpuListStr           *string
 	parallel             *int
@@ -2593,6 +2595,13 @@ func (m *M) Run() (code int) {
 		rng := rand.New(rand.NewSource(n))
 		rng.Shuffle(len(m.tests), func(i, j int) { m.tests[i], m.tests[j] = m.tests[j], m.tests[i] })
 		rng.Shuffle(len(m.benchmarks), func(i, j int) { m.benchmarks[i], m.benchmarks[j] = m.benchmarks[j], m.benchmarks[i] })
+	}
+
+	if *traceFile == "" && *traceSlice {
+		fmt.Fprintln(os.Stderr, "testing: -test.traceslice must be set if -test.tracefile is set")
+		flag.Usage()
+		m.exitCode = 2
+		return
 	}
 
 	parseCpuList()
