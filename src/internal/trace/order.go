@@ -1093,8 +1093,8 @@ func (o *ordering) advanceAllocFree(ev *baseEvent, evt *evTable, m ThreadID, gen
 }
 
 func (o *ordering) advanceGrowslice(ev *baseEvent, evt *evTable, m ThreadID, gen uint64, curCtx schedCtx) (schedCtx, bool, error) {
-	// Handle simple instantaneous events that may or may not have a P.
-	if err := validateCtx(curCtx, schedReqs{M: mustHave, P: mayHave, G: mayHave}); err != nil {
+	// Handle simple instantaneous events that require a G.
+	if err := validateCtx(curCtx, userGoReqs); err != nil {
 		return curCtx, false, err
 	}
 	o.queue.push(Event{table: evt, ctx: curCtx, base: *ev})

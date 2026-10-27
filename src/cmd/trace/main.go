@@ -65,6 +65,7 @@ var (
 	httpFlag  = flag.String("http", "localhost:0", "HTTP server listen address (e.g., ':6060')")
 	pprofFlag = flag.String("pprof", "", "print a pprof-like profile instead")
 	debugFlag = flag.String("d", "", "print debug info and exit (modes: wire, parsed, footprint)")
+	profExtra = flag.String("profextra", "", "generate a profile with extra data (modes: slice)")
 
 	// The binary file name, left here for serveSVGProfile.
 	programBinary string
