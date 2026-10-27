@@ -52,6 +52,8 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // IRGraph is a call graph with nodes pointing to IRs of functions and edges
@@ -116,6 +118,23 @@ type Profile struct {
 	// WeightedCG represents the IRGraph built from profile, which we will
 	// update as part of inlining.
 	WeightedCG *IRGraph
+}
+
+type GrowsliceStat struct {
+	Line      int
+	StartSize int
+	EndSize   int
+}
+
+type GrowsliceContext struct {
+	Func string
+	Line int
+}
+
+type SliceProfile struct {
+	// func -> linenumber -> stat
+	Counters                map[string]map[int]GrowsliceStat
+	CallerSensitiveCounters map[GrowsliceContext]map[GrowsliceContext]GrowsliceStat
 }
 
 // New generates a profile-graph from the profile or pre-processed profile.
@@ -500,4 +519,200 @@ func DirectCallee(fn ir.Node) *ir.Func {
 		return c
 	}
 	return nil
+}
+
+func NewSlice(profileFile string) (*SliceProfile, error) {
+	const wantSliceHdr = "EXTRA TRACE PROFILE V1\n"
+	f, err := os.Open(profileFile)
+	if err != nil {
+		return nil, fmt.Errorf("error opening profile: %w", err)
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	scanner := bufio.NewScanner(r)
+	scanner.Split(bufio.ScanLines)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("error reading slice profile: %w", err)
+		}
+		return nil, fmt.Errorf("slice profile missing header")
+	}
+	if gotHdr := scanner.Text() + "\n"; gotHdr != wantSliceHdr {
+		return nil, fmt.Errorf("slice profile malformed header; got %q, want %q", gotHdr, wantSliceHdr)
+	}
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("error reading slice profile: %w", err)
+		}
+		return nil, fmt.Errorf("slice profile structure error")
+	}
+	funcNumber, err := strconv.Atoi(scanner.Text())
+	if err != nil {
+		return nil, fmt.Errorf("error reading slice profile: %w", err)
+	}
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("error reading slice profile: %w", err)
+		}
+		return nil, fmt.Errorf("slice profile structure error")
+	}
+	callerSensitive, err := strconv.Atoi(scanner.Text())
+	if err != nil {
+		return nil, fmt.Errorf("error reading slice profile: %w", err)
+	}
+	idToFunc := make(map[int]string)
+	for i := 0; i < funcNumber; i++ {
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+			}
+		}
+		line := scanner.Text()
+		tokens := strings.Split(line, " ")
+		if len(tokens) < 2 {
+			return nil, fmt.Errorf("slice profile is corrupted: expected 2 arguments, got %d", len(tokens))
+		}
+		id, err := strconv.Atoi(tokens[0])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		idToFunc[id] = tokens[1]
+	}
+	sp := SliceProfile{
+		Counters: make(map[string]map[int]GrowsliceStat),
+	}
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+	}
+	callsiteNum, err := strconv.Atoi(scanner.Text())
+	if err != nil {
+		return nil, fmt.Errorf("error reading slice profile: %w", err)
+	}
+	for i := 0; i < callsiteNum; i++ {
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+			}
+		}
+		line := scanner.Text()
+		tokens := strings.Split(line, " ")
+		if len(tokens) != 4 {
+			return nil, fmt.Errorf("slice profile is corrupted: expected 4 arguments, got %d", len(tokens))
+		}
+		id, err := strconv.Atoi(tokens[0])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		linenum, err := strconv.Atoi(tokens[1])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		startSize, err := strconv.Atoi(tokens[2])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		endSize, err := strconv.Atoi(tokens[3])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		fname, ok := idToFunc[id]
+		if !ok {
+			return nil, fmt.Errorf("slice profile is corrupted: function with id=%d is not found", id)
+		}
+		stat := GrowsliceStat{
+			Line:      linenum,
+			StartSize: startSize,
+			EndSize:   endSize,
+		}
+		if _, ok := sp.Counters[fname]; !ok {
+			sp.Counters[fname] = make(map[int]GrowsliceStat)
+		}
+		sp.Counters[fname][linenum] = stat
+	}
+	if callerSensitive == 0 {
+		return &sp, nil
+	}
+	sp.CallerSensitiveCounters = make(map[GrowsliceContext]map[GrowsliceContext]GrowsliceStat)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+	}
+	callerSensCallsiteNum, err := strconv.Atoi(scanner.Text())
+	if err != nil {
+		return nil, fmt.Errorf("error reading slice profile: %w", err)
+	}
+	for i := 0; i < callerSensCallsiteNum; i++ {
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+			}
+		}
+		line := scanner.Text()
+		tokens := strings.Split(line, " ")
+		if len(tokens) != 6 {
+			return nil, fmt.Errorf("slice profile is corrupted: expected 6 arguments, got %d", len(tokens))
+		}
+		callerId, err := strconv.Atoi(tokens[0])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		callerLine, err := strconv.Atoi(tokens[1])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		calleeId, err := strconv.Atoi(tokens[2])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		calleeLine, err := strconv.Atoi(tokens[3])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		startSize, err := strconv.Atoi(tokens[4])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		endSize, err := strconv.Atoi(tokens[5])
+		if err != nil {
+			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		caller, ok := idToFunc[callerId]
+		if !ok {
+			return nil, fmt.Errorf("slice profile is corrupted: function with id=%d is not found", callerId)
+		}
+		callee, ok := idToFunc[calleeId]
+		if !ok {
+			return nil, fmt.Errorf("slice profile is corrupted: function with id=%d is not found", calleeId)
+		}
+		stat := GrowsliceStat{
+			Line:      calleeLine,
+			StartSize: startSize,
+			EndSize:   endSize,
+		}
+		callerc := GrowsliceContext{
+			Func: caller,
+			Line: callerLine,
+		}
+		calleec := GrowsliceContext{
+			Func: callee,
+			Line: calleeLine,
+		}
+		if _, ok := sp.CallerSensitiveCounters[callerc]; !ok {
+			sp.CallerSensitiveCounters[callerc] = make(map[GrowsliceContext]GrowsliceStat)
+		}
+		sp.CallerSensitiveCounters[callerc][calleec] = stat
+	}
+	if base.Debug.SliceProfDebug > 1 {
+		fmt.Printf("Loaded slice profile:\n")
+		for callerc, info := range sp.CallerSensitiveCounters {
+			fmt.Printf("Caller [%s:%d]:\n", callerc.Func, callerc.Line)
+			for calleec, stat := range info {
+				fmt.Printf("\t-> %s:%d (start=%d, end=%d)\n", calleec.Func, calleec.Line, stat.StartSize, stat.EndSize)
+			}
+		}
+	}
+	return &sp, nil
 }

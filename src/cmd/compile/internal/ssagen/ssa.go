@@ -136,6 +136,7 @@ func InitConfig(config *ssa.Config) {
 	ir.Syms.GrowsliceBuf = typecheck.LookupRuntimeFunc("growsliceBuf")
 	ir.Syms.GrowsliceBufNoAlias = typecheck.LookupRuntimeFunc("growsliceBufNoAlias")
 	ir.Syms.GrowsliceNoAlias = typecheck.LookupRuntimeFunc("growsliceNoAlias")
+	ir.Syms.GrowsliceSpecial = typecheck.LookupRuntimeFunc("growsliceSpecial")
 	ir.Syms.MoveSlice = typecheck.LookupRuntimeFunc("moveSlice")
 	ir.Syms.MoveSliceNoScan = typecheck.LookupRuntimeFunc("moveSliceNoScan")
 	ir.Syms.MoveSliceNoCap = typecheck.LookupRuntimeFunc("moveSliceNoCap")
@@ -4099,15 +4100,19 @@ func (s *state) append(n *ir.CallExpr, inplace bool) *ssa.Value {
 		}
 		r = s.rtcall(fn, true, []*types.Type{n.Type()}, p, l, c, nargs, taddr, s.addr(info.store), s.constInt(types.Types[types.TINT], info.K))
 	} else {
-		fn := ir.Syms.Growslice
 		if goexperiment.RuntimeFreegc && n.AppendNoAlias && !et.HasPointers() {
 			// The append is for a non-aliased slice where the runtime knows how to free
 			// the old logically dead backing store after growth.
 			// TODO(thepudds): for now, we only use the NoAlias version for element types
 			// without pointers while waiting on additional runtime support (CL 698515).
-			fn = ir.Syms.GrowsliceNoAlias
+			r = s.rtcall(ir.Syms.GrowsliceNoAlias, true, []*types.Type{n.Type()}, p, l, c, nargs, taddr)
+		} else if n.AppendProfile != nil {
+			startCap := s.constInt(types.Types[types.TINT], int64(n.AppendProfile.StartSize))
+			endCap := s.constInt(types.Types[types.TINT], int64(n.AppendProfile.EndSize))
+			r = s.rtcall(ir.Syms.GrowsliceSpecial, true, []*types.Type{n.Type()}, p, l, c, nargs, taddr, startCap, endCap)
+		} else {
+			r = s.rtcall(ir.Syms.Growslice, true, []*types.Type{n.Type()}, p, l, c, nargs, taddr)
 		}
-		r = s.rtcall(fn, true, []*types.Type{n.Type()}, p, l, c, nargs, taddr)
 	}
 
 	// Decompose output slice

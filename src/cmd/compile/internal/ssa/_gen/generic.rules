@@ -2178,10 +2178,10 @@
 // the post-decomposed (*T,int,int) result. (The latter is generated after call expansion.)
 // TODO(thepudds): we probably need the new growsliceBuf and growsliceBufNoAlias here as well?
 (SliceLen (SelectN [0] (StaticLECall {sym} _ newLen:(Const(64|32)) _ _ _ _)))
-	&& (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias"))
+	&& (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial"))
 	=> newLen
 (SelectN [1] (StaticCall {sym} _ newLen:(Const(64|32)) _ _ _ _)) && v.Type.IsInteger()
-	&& (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias"))
+	&& (ssa.IsSameCall(sym, "runtime.growslice") || ssa.IsSameCall(sym, "runtime.growsliceNoAlias") || ssa.IsSameCall(sym, "runtime.growsliceSpecial"))
 	=> newLen
 
 // Collapse moving A -> B -> C into just A -> C.

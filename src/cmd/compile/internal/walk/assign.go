@@ -524,7 +524,7 @@ func (w *walkState) appendSlice(n *ir.CallExpr, init *ir.Nodes) ir.Node {
 	nif.Body = []ir.Node{ir.NewAssignStmt(base.Pos, s, slice)}
 
 	// else { s = growslice(oldPtr, newLen, oldCap, num, T) }
-	call := w.walkGrowslice(s, nif.PtrInit(), oldPtr, newLen, oldCap, num)
+	call := w.walkGrowslice(n, s, nif.PtrInit(), oldPtr, newLen, oldCap, num)
 	nif.Else = []ir.Node{ir.NewAssignStmt(base.Pos, s, call)}
 
 	nodes.Append(nif)
@@ -709,7 +709,7 @@ func (w *walkState) extendSlice(n *ir.CallExpr, init *ir.Nodes) ir.Node {
 
 	// else { s = growslice(s.ptr, n, s.cap, l2, T) }
 	nif.Else = []ir.Node{
-		ir.NewAssignStmt(base.Pos, s, w.walkGrowslice(s, nif.PtrInit(),
+		ir.NewAssignStmt(base.Pos, s, w.walkGrowslice(n, s, nif.PtrInit(),
 			ir.NewUnaryExpr(base.Pos, ir.OSPTR, s),
 			nn,
 			ir.NewUnaryExpr(base.Pos, ir.OCAP, s),
