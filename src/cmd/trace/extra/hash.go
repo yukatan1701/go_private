@@ -15,12 +15,3 @@ func hashString64(s string) (stringHash, error) {
 	}
 	return stringHash(h.Sum64()), nil
 }
-
-func hashFrame64(funcname, line string) (frameHash, error) {
-	str := funcname + ":" + line
-	hash, err := hashString64(str)
-	if err != nil {
-		return frameHash(0), err
-	}
-	return frameHash(hash), nil
-}

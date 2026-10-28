@@ -27,10 +27,12 @@ func ProcessExtraTrace(trc io.Reader) error {
 		}
 		switch ev.Ev {
 		case tracev2.EvEndOfGeneration:
+			if err := gs.addGeneration(gen); err != nil {
+				return err
+			}
 			if debug {
 				gs.printGenerationStat(gen)
 			}
-			gs.addGeneration(gen)
 			gen = newGeneration(gen.id + 1)
 		case tracev2.EvGrowslice:
 			if err := gen.readGrowslice(&ev); err != nil {
@@ -46,11 +48,13 @@ func ProcessExtraTrace(trc io.Reader) error {
 			}
 		}
 	}
-	if len(gen.chainInfo) != 0 {
+	if len(gen.tailPtrToChainPos) != 0 {
+		if err := gs.addGeneration(gen); err != nil {
+			return err
+		}
 		if debug {
 			gs.printGenerationStat(gen)
 		}
-		gs.addGeneration(gen)
 	}
 	gs.filterStacks()
 	err = gs.findBestSolutions()
