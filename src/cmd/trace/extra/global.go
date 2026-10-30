@@ -1,3 +1,7 @@
+// Copyright 2026 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package extra
 
 import (
@@ -38,12 +42,11 @@ type globalFrame struct {
 }
 
 type globalStack struct {
-	hash     stackHash
-	frames   []*globalFrame
-	chains   map[globalChain]*allocInfo
-	num      int
-	newCaps  map[int]int
-	bestCand candInfo
+	hash    stackHash
+	frames  []*globalFrame
+	chains  map[globalChain]*allocInfo
+	num     int
+	newCaps map[int]int
 }
 
 type trimmedStack struct {
@@ -189,7 +192,7 @@ func (g *globalStat) addToGlobalStacks(gen *generation, st *stack) (*globalStack
 func (g *globalStat) addGeneration(gen *generation) error {
 	for _, st := range gen.stacks {
 		gs, err := g.addToGlobalStacks(gen, st)
-		if err != nil {
+		if err != nil || gs == nil {
 			return err
 		}
 		st.hash = gs.hash

@@ -1,3 +1,7 @@
+// Copyright 2026 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package extra
 
 import (
@@ -157,13 +161,6 @@ func (g *globalStat) printGlobalStat() {
 			totalAllocated += newcap * number
 			totalAllocations += number
 		}
-		printDebug("Allocated: %d elems, allocations: %d\n", totalAllocated, totalAllocations)
-		/*gs.printChainsStat()
-		best_cand := gs.bestCand
-		if best_cand.valid {
-			printDebug("BEST CHAIN: start_size=%d, end_size=%d, delta_allocs=%d, global_waste=%d\n",
-				best_cand.startCap, best_cand.endCap, best_cand.deltaAllocs, best_cand.globalWaste)
-		}*/
 	}
 	printDebug("--------------------------------------------\n")
 }
@@ -195,24 +192,3 @@ func (gs *globalStat) printTrimmedStack(st *trimmedStack) {
 
 	printDebug("--------------------------------------------\n")
 }
-
-/*func (st *globalStack) printChainsStat() {
-	if st.stat == nil {
-		printDebug("WARNING: no sorted global chains in the global stack.\n")
-		return
-	}
-	printDebug("start_cap -> end_cap:\n")
-	sorted := make([]int, len(st.stat))
-	for c := range st.stat {
-		sorted = append(sorted, c)
-	}
-	slices.Sort(sorted)
-	for _, c := range sorted {
-		chains := st.stat[c]
-		for _, ch := range chains {
-			allocs := st.chains[ch]
-			printDebug("\t%d -> %d: %d chains (allocs/chain=%d, elems/chain=%d, total_allocs=%d, total_elems=%d)\n",
-				ch.startCap, ch.endCap, allocs.numChains, allocs.allocsPerChain, allocs.elemsPerChain, allocs.totalAllocs, allocs.totalElems)
-		}
-	}
-}*/

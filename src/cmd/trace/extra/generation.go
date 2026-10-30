@@ -1,11 +1,34 @@
+// Copyright 2026 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package extra
 
 import (
 	"fmt"
+	"hash/fnv"
 	"internal/trace/raw"
 	"internal/trace/tracev2"
 	"strconv"
 )
+
+const maxStackDepth = 2
+
+type (
+	stringHash uint64
+	stackHash  stringHash
+	frameHash  stringHash
+	funcHash   stringHash
+)
+
+func hashString64(s string) (stringHash, error) {
+	h := fnv.New64a()
+	_, err := h.Write([]byte(s))
+	if err != nil {
+		return stringHash(0), err
+	}
+	return stringHash(h.Sum64()), nil
+}
 
 type frame struct {
 	funcId int
@@ -139,8 +162,6 @@ func (gen *generation) readGrowslice(ev *raw.Event) error {
 	}
 	return nil
 }
-
-const maxStackDepth = 2
 
 func (gen *generation) readStack(ev *raw.Event) error {
 	if ev.Ev != tracev2.EvStack {
