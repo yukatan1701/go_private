@@ -57,15 +57,15 @@ func ProcessExtraTrace(trc io.Reader) error {
 		}
 	}
 	gs.filterStacks()
-	err = gs.findBestSolutions()
-	if err != nil {
-		return err
-	}
 	if debug {
 		gs.printGlobalStat()
 	}
-	gs.bestForTopFrames()
-	gs.bestForTopFramesWithCaller()
-	err = gs.emitProfile(os.Stdout, true)
+	for i := 1; i <= maxStackDepth; i++ {
+		err = gs.findBestSolution(i)
+		if err != nil {
+			return err
+		}
+	}
+	err = gs.emitProfile(os.Stdout, maxStackDepth)
 	return err
 }

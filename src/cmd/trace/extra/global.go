@@ -42,28 +42,43 @@ type globalStack struct {
 	frames   []*globalFrame
 	chains   map[globalChain]*allocInfo
 	num      int
-	newcaps  map[int]int
+	newCaps  map[int]int
 	bestCand candInfo
-	// startCap -> sorted global chains
-	stat map[int][]globalChain
 }
 
-type bestTopFrames struct {
-	callerHash funcHash
-	callerLine string
-	calleeHash funcHash
-	calleeLine string
+type trimmedStack struct {
+	hash     stackHash
+	frames   []*globalFrame
+	chains   map[globalChain]*allocInfo
+	num      int
+	bestCand candInfo
+	stat     map[int][]globalChain
 }
 
 type globalStat struct {
-	hashToString              map[stringHash]string
-	globalStacks              map[stackHash]*globalStack
-	globalFrames              map[frameHash]*globalFrame
-	totalBests                map[funcHash]map[string]candInfo
-	totalCallerSensitiveBests map[bestTopFrames]candInfo
+	hashToString map[stringHash]string
+	globalStacks map[stackHash]*globalStack
+	globalFrames map[frameHash]*globalFrame
+	depthToStat  []depthStat
 }
 
-func (g *globalStat) newGlobalFrame(gen *generation, f *frame) (*globalFrame, error) {
+type profileFrame struct {
+	funchash funcHash
+	line     string
+}
+
+type profileStack struct {
+	frames   []profileFrame
+	startCap int
+	endCap   int
+}
+
+type depthStat struct {
+	depth  int
+	stacks []profileStack
+}
+
+func (g *globalStat) addToGlobalFrame(gen *generation, f *frame) (*globalFrame, error) {
 	funchash := gen.stringIdToHash[f.funcId]
 	funcname := g.hashToString[funchash]
 	framestr := funcname + ":" + f.line
@@ -110,7 +125,7 @@ func (g *globalStat) addToGlobalStacks(gen *generation, st *stack) (*globalStack
 	gframes := make([]*globalFrame, 0, len(st.frames))
 	var b strings.Builder
 	for _, fr := range st.frames {
-		gf, err := g.newGlobalFrame(gen, &fr)
+		gf, err := g.addToGlobalFrame(gen, &fr)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +162,7 @@ func (g *globalStat) addToGlobalStacks(gen *generation, st *stack) (*globalStack
 		// We have a corresponding global stack, just update it.
 		gs.num += st.num
 		for ncap, num := range st.newCaps {
-			gs.newcaps[ncap] += num
+			gs.newCaps[ncap] += num
 		}
 		if err := mergeChains(st.chains, gs.chains); err != nil {
 			return nil, err
@@ -163,7 +178,7 @@ func (g *globalStat) addToGlobalStacks(gen *generation, st *stack) (*globalStack
 		hash:    stackHash,
 		frames:  gframes,
 		num:     st.num,
-		newcaps: st.newCaps,
+		newCaps: st.newCaps,
 		chains:  gchains,
 	}
 	g.globalStacks[stackHash] = gs
@@ -187,13 +202,13 @@ func (g *globalStat) filterStacks() {
 	const stackNumThreshold = 100
 	for hash, stack := range g.globalStacks {
 		// Exclude rare stacks and stacks without several capacities.
-		if stack.num < stackNumThreshold || len(stack.newcaps) < 2 {
+		if stack.num < stackNumThreshold || len(stack.newCaps) < 2 {
 			delete(g.globalStacks, hash)
 		}
 	}
 }
 
-func (st *globalStack) sortGlobalChains() {
+func (st *trimmedStack) sortChains() {
 	stat := make(map[int][]globalChain)
 	for ch := range st.chains {
 		stat[ch.startCap] = append(stat[ch.startCap], ch)
@@ -209,30 +224,100 @@ func (st *globalStack) sortGlobalChains() {
 	st.stat = stat
 }
 
-func (gs *globalStat) sortGlobalChains() {
-	for _, st := range gs.globalStacks {
-		st.sortGlobalChains()
+func (g *globalStat) trimStacks(depth int) (map[stackHash]*trimmedStack, error) {
+	if depth < 1 {
+		// TODO: return error?
+		return nil, nil
 	}
+	trimmedStacks := make(map[stackHash]*trimmedStack)
+	for _, gs := range g.globalStacks {
+		var b strings.Builder
+		length := min(len(gs.frames), depth)
+		frames := gs.frames[:length]
+		for _, fr := range frames {
+			b.WriteString(fr.str)
+		}
+		hash, err := hashString64(b.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to add stack: %v", err)
+		}
+		stackHash := stackHash(hash)
+		if _, ok := trimmedStacks[stackHash]; !ok {
+			trimmedStacks[stackHash] = &trimmedStack{
+				hash:   stackHash,
+				chains: make(map[globalChain]*allocInfo),
+				frames: frames,
+			}
+		}
+		trimmedStack := trimmedStacks[stackHash]
+		trimmedStack.num += gs.num
+		mergedChains := trimmedStack.chains
+		for gc, gAllocs := range gs.chains {
+			if _, ok := mergedChains[gc]; !ok {
+				mergedChains[gc] = &allocInfo{}
+			}
+			allocs := mergedChains[gc]
+			allocs.numChains += gAllocs.numChains
+			allocs.totalElems += gAllocs.totalElems
+			allocs.totalAllocs += gAllocs.totalAllocs
+			allocs.allocsPerChain = max(allocs.allocsPerChain, gAllocs.allocsPerChain)
+			allocs.elemsPerChain = max(allocs.elemsPerChain, gAllocs.elemsPerChain)
+		}
+		trimmedStack.sortChains()
+	}
+	// TODO: return sorted?
+	return trimmedStacks, nil
 }
 
-func (g *globalStat) findBestSolutions() error {
-	g.sortGlobalChains()
-	var err error
-	for _, s := range g.globalStacks {
-		s.bestCand, err = s.findBest()
-		if err != nil {
+func (g *globalStat) findBestSolution(depth int) error {
+	// STEP 1: prepare trimmed stacks
+	trimmedStacks, err := g.trimStacks(depth)
+	if err != nil {
+		return err
+	}
+	if debug {
+		printDebug("TRIMMED STACKS (depth=%d)\n", depth)
+	}
+	stat := depthStat{
+		depth:  depth,
+		stacks: make([]profileStack, 0, len(trimmedStacks)),
+	}
+	for _, s := range trimmedStacks {
+		if debug {
+			g.printTrimmedStack(s)
+		}
+		if err = s.findBest(); err != nil {
 			return err
 		}
+		if !s.bestCand.valid {
+			continue
+		}
+		ps := profileStack{
+			frames:   make([]profileFrame, 0, len(s.frames)),
+			startCap: s.bestCand.startCap,
+			endCap:   s.bestCand.endCap,
+		}
+		for _, fr := range s.frames {
+			ps.frames = append(ps.frames, profileFrame{
+				funchash: fr.funcHash,
+				line:     fr.line,
+			})
+		}
+		stat.stacks = append(stat.stacks, ps)
 	}
+	g.depthToStat = append(g.depthToStat, stat)
 	return nil
 }
 
-func (s *globalStack) findBest() (candInfo, error) {
+func (s *trimmedStack) findBest() error {
 	if debugFindBest {
 		printDebug("ESTIMATION\n")
 	}
 	if len(s.chains) == 0 || len(s.stat) == 0 {
-		return candInfo{}, nil
+		return nil
+	}
+	if len(s.frames) == 0 {
+		panic("HERE")
 	}
 	if debugFindBest {
 		if len(s.frames) == 1 {
@@ -305,7 +390,7 @@ func (s *globalStack) findBest() (candInfo, error) {
 						cj.endCap, cjAllocs.numChains, allocsPerChain, elemsPerChain, totalAllocs, totalElems)
 				}
 				if elemsPerChain > cjAllocs.elemsPerChain {
-					return candInfo{}, fmt.Errorf("%s: elemsPerChain > ch.allocs.elemsPerChain", parsingErrPrefix)
+					return fmt.Errorf("%s: elemsPerChain > ch.allocs.elemsPerChain", parsingErrPrefix)
 				}
 				deltaElems := (cjAllocs.elemsPerChain - elemsPerChain) * cjAllocs.numChains
 				globalWaste -= deltaElems
@@ -343,7 +428,7 @@ func (s *globalStack) findBest() (candInfo, error) {
 		candidates = append(candidates, bestCand)
 	}
 	if len(candidates) == 0 {
-		return candInfo{}, nil
+		return nil
 	}
 	slices.SortFunc(candidates, func(x, y candInfo) int {
 		if x.globalWaste != y.globalWaste {
@@ -357,191 +442,74 @@ func (s *globalStack) findBest() (candInfo, error) {
 	bestCand := candidates[0]
 	bestCand.valid = true
 	if debugFindBest {
-		printDebug("FOUND BEST CHAIN: start_size=%d, end_size=%d, delta_allocs=%d, global_waste=%d\n",
-			bestCand.startCap, bestCand.endCap, bestCand.deltaAllocs, bestCand.globalWaste)
+		printDebug("FOUND BEST CHAIN (depth=%d): start_size=%d, end_size=%d, delta_allocs=%d, global_waste=%d\n",
+			len(s.frames), bestCand.startCap, bestCand.endCap, bestCand.deltaAllocs, bestCand.globalWaste)
 	}
-	return bestCand, nil
+	s.bestCand = bestCand
+	return nil
 }
 
-type accumCandInfo struct {
-	startSize int
-	endSize   int
-}
+/***
+Profile structure:
+HEADER
+hashes_num
+id fname
+id fname
 
-func (g *globalStat) bestForTopFrames() {
-	// frame -> accum_cand -> []cand
-	topToBests := make(map[frameHash]map[accumCandInfo]candInfo)
-	for _, s := range g.globalStacks {
-		if !s.bestCand.valid {
-			continue
-		}
-		top := s.frames[0]
-		if topToBests[top.hash] == nil {
-			topToBests[top.hash] = make(map[accumCandInfo]candInfo)
-		}
-		accumCand := accumCandInfo{startSize: s.bestCand.startCap, endSize: s.bestCand.endCap}
-		if cand, ok := topToBests[top.hash][accumCand]; ok {
-			cand.globalWaste += s.bestCand.globalWaste
-			cand.deltaAllocs += s.bestCand.deltaAllocs
-			topToBests[top.hash][accumCand] = cand
-		} else {
-			topToBests[top.hash][accumCand] = s.bestCand
-		}
-	}
-	// func -> lines -> candidates
-	totalBest := make(map[funcHash]map[string]candInfo)
-	for framehash, cands := range topToBests {
-		fr := g.globalFrames[framehash]
-		best := candInfo{}
-		for _, cand := range cands {
-			if !best.valid {
-				best = cand
-				continue
-			}
-			if cand.startCap != best.startCap && debug {
-				printDebug("FRAME '%s': expected start_size=%d, found=%d\n", fr.str, best.startCap, cand.startCap)
-			}
-			if cand.deltaAllocs < best.deltaAllocs {
-				best = cand
-			}
-		}
-		if (best.startCap == 0 && best.endCap == 1) || (best.startCap == 1 && best.endCap == 2) {
-			continue
-		}
-		if debug {
-			printDebug("FRAME '%s': overall best candidate: start_size=%d, end_size=%d (delta_allocs=%d, global_waste=%d)\n",
-				fr.str, best.startCap, best.endCap, best.deltaAllocs, best.globalWaste)
-		}
-		if _, ok := totalBest[fr.funcHash]; !ok {
-			totalBest[fr.funcHash] = make(map[string]candInfo)
-		}
-		totalBest[fr.funcHash][fr.line] = best
-	}
-	g.totalBests = totalBest
-}
+maxDepth
+stacknum_1
+frame_len_i func_id line_num ... func_id line_num start end
+frame_len_j
+frame_len_k
 
-func (g *globalStat) bestForTopFramesWithCaller() {
-	type topFramesPair struct {
-		callee frameHash
-		caller frameHash
-	}
-	// frame_pair -> accum_cand -> []cand
-	topToBests := make(map[topFramesPair]map[accumCandInfo]candInfo)
-	for _, s := range g.globalStacks {
-		if !s.bestCand.valid {
-			continue
-		}
-		top := topFramesPair{callee: s.frames[0].hash, caller: s.frames[1].hash}
-		if topToBests[top] == nil {
-			topToBests[top] = make(map[accumCandInfo]candInfo)
-		}
-		accumCand := accumCandInfo{startSize: s.bestCand.startCap, endSize: s.bestCand.endCap}
-		if cand, ok := topToBests[top][accumCand]; ok {
-			cand.globalWaste += s.bestCand.globalWaste
-			cand.deltaAllocs += s.bestCand.deltaAllocs
-			topToBests[top][accumCand] = cand
-		} else {
-			topToBests[top][accumCand] = s.bestCand
-		}
-	}
-	// func -> lines -> candidates
-	totalBest := make(map[bestTopFrames]candInfo)
-	for frPair, cands := range topToBests {
-		caller := g.globalFrames[frPair.caller]
-		callee := g.globalFrames[frPair.callee]
-		best := candInfo{}
-		for _, cand := range cands {
-			if !best.valid {
-				best = cand
-				continue
-			}
-			if cand.startCap != best.startCap && debug {
-				printDebug("FRAME PAIR '<%s|%s>': expected start_size=%d, found=%d\n", caller.str, callee.str, best.startCap, cand.startCap)
-			}
-			if cand.deltaAllocs < best.deltaAllocs {
-				best = cand
-			}
-		}
-		if (best.startCap == 0 && best.endCap == 1) || (best.startCap == 1 && best.endCap == 2) {
-			continue
-		}
-		if debug {
-			printDebug("FRAME PAIR '<%s|%s>': overall best candidate: start_size=%d, end_size=%d (delta_allocs=%d, global_waste=%d)\n",
-				caller.str, callee.str, best.startCap, best.endCap, best.deltaAllocs, best.globalWaste)
-		}
-		btf := bestTopFrames{callerHash: caller.funcHash, callerLine: caller.line, calleeHash: callee.funcHash, calleeLine: callee.line}
-		totalBest[btf] = best
-	}
-	g.totalCallerSensitiveBests = totalBest
-}
 
-func (g *globalStat) emitProfile(w io.Writer, callerSensitive bool) error {
+stacknum_2
+
+
+
+***/
+
+func (g *globalStat) emitProfile(w io.Writer, maxDepth uint) error {
 	const header = "EXTRA TRACE PROFILE V1\n"
-	allHashes := make(map[funcHash]struct{})
-	hashes := make([]funcHash, 0, len(g.totalBests))
-	for btf := range g.totalCallerSensitiveBests {
-		if _, ok := allHashes[btf.callerHash]; !ok {
-			allHashes[btf.callerHash] = struct{}{}
-			hashes = append(hashes, btf.callerHash)
+	allHashes := make(map[funcHash]int)
+	for _, ds := range g.depthToStat {
+		for _, st := range ds.stacks {
+			for _, fr := range st.frames {
+				allHashes[fr.funchash] = -1
+			}
 		}
-		if _, ok := allHashes[btf.calleeHash]; !ok {
-			allHashes[btf.calleeHash] = struct{}{}
-			hashes = append(hashes, btf.calleeHash)
-		}
+	}
+
+	hashes := make([]funcHash, 0, len(g.depthToStat))
+	for hash := range allHashes {
+		hashes = append(hashes, hash)
 	}
 	slices.Sort(hashes)
-	var b bytes.Buffer
-	number := fmt.Sprintf("%d\n", len(hashes))
-	b.WriteString(header)
-	b.WriteString(number)
-	if callerSensitive {
-		b.WriteString("1\n")
-	} else {
-		b.WriteString("0\n")
+	for i, hash := range hashes {
+		allHashes[hash] = i
 	}
+	var b bytes.Buffer
+	b.WriteString(header)
+	funcNumber := len(hashes)
+	fmt.Fprintf(&b, "%d\n", funcNumber)
 	for id, hash := range hashes {
 		fname := g.hashToString[stringHash(hash)]
-		s := fmt.Sprintf("%d %s\n", id, fname)
-		b.WriteString(s)
+		fmt.Fprintf(&b, "%d %s\n", id, fname)
 	}
-	hashToId := make(map[funcHash]int)
-	lineNum := 0
-	for _, hash := range hashes {
-		lineNum += len(g.totalBests[hash])
-	}
-	b.WriteString(fmt.Sprintf("%d\n", lineNum))
-	lines := make([]string, 0, len(hashes))
-	for id, hash := range hashes {
-		hashToId[hash] = id
-		for line, cand := range g.totalBests[hash] {
-			s := fmt.Sprintf("%d %s %d %d\n", id, line, cand.startCap, cand.endCap)
-			lines = append(lines, s)
-		}
-	}
-	slices.Sort(lines)
-	for _, l := range lines {
-		b.WriteString(l)
-	}
-	if callerSensitive {
-		lineNum = len(g.totalCallerSensitiveBests)
-		b.WriteString(fmt.Sprintf("%d\n", lineNum))
-		lines := make([]string, 0, len(g.totalCallerSensitiveBests))
-		for btf, cand := range g.totalCallerSensitiveBests {
-			// caller_id line callee_id line start_size end_size
-			callerId, ok := hashToId[btf.callerHash]
-			if !ok {
-				return fmt.Errorf("failed to emit profile: no callerId in hashToId")
+
+	depth := min(int(maxDepth), len(g.depthToStat))
+	fmt.Fprintf(&b, "%d\n", depth)
+	for i := 0; i < int(depth); i++ {
+		stat := g.depthToStat[i]
+		fmt.Fprintf(&b, "%d\n", len(stat.stacks))
+		for _, st := range stat.stacks {
+			stackLen := len(st.frames)
+			fmt.Fprintf(&b, "%d ", stackLen)
+			for _, fr := range st.frames {
+				funcId := allHashes[fr.funchash]
+				fmt.Fprintf(&b, "%d %s ", funcId, fr.line)
 			}
-			calleeId, ok := hashToId[btf.calleeHash]
-			if !ok {
-				return fmt.Errorf("failed to emit profile: no calleeId in hashToId")
-			}
-			s := fmt.Sprintf("%d %s %d %s %d %d\n", callerId, btf.callerLine, calleeId, btf.calleeLine, cand.startCap, cand.endCap)
-			lines = append(lines, s)
-		}
-		slices.Sort(lines)
-		for _, l := range lines {
-			b.WriteString(l)
+			fmt.Fprintf(&b, "%d %d\n", st.startCap, st.endCap)
 		}
 	}
 	_, err := w.Write(b.Bytes())

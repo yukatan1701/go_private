@@ -140,6 +140,8 @@ func (gen *generation) readGrowslice(ev *raw.Event) error {
 	return nil
 }
 
+const maxStackDepth = 2
+
 func (gen *generation) readStack(ev *raw.Event) error {
 	if ev.Ev != tracev2.EvStack {
 		return fmt.Errorf("%s: invalid event: got %d, want %d", parsingErrPrefix, ev.Ev, tracev2.EvStack)
@@ -155,11 +157,13 @@ func (gen *generation) readStack(ev *raw.Event) error {
 		return nil
 	}
 	frames := ev.Args[len(spec.Args):]
-	for i := 0; i < len(frames); i += 4 {
+	depth := 0
+	for i := 0; i < len(frames) && depth < maxStackDepth; i += 4 {
 		funcId := frames[i+1]
 		fileId := frames[i+2]
 		line := strconv.Itoa(int(frames[i+3]))
 		stack.frames = append(stack.frames, frame{funcId: int(funcId), fileId: int(fileId), line: line})
+		depth++
 	}
 	return nil
 }

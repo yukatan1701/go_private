@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	debugFindBest  = true
-	debug          = true
+	debugFindBest  = false
+	debug          = false
 	maxPrintFrames = 5
 )
 
@@ -131,7 +131,7 @@ func (g *globalStat) printGlobalStat() {
 	printDebug("MERGED STATISTICS\n")
 	for i, gs := range stacks {
 		printDebug("--------------------------------------------\n")
-		printDebug("Stack %d (num=%d, hash=%d, chain num=%d):\n", i, gs.num, gs.hash, len(gs.chains))
+		printDebug("Stack %d (num=%d, hash=%d, unique chain num=%d):\n", i, gs.num, gs.hash, len(gs.chains))
 		maxFrames := maxPrintFrames
 		if len(gs.frames) < maxFrames {
 			maxFrames = len(gs.frames)
@@ -143,31 +143,60 @@ func (g *globalStat) printGlobalStat() {
 		if maxFrames < len(gs.frames) {
 			printDebug("\t...\n")
 		}
-		caps := make([]int, 0, len(gs.newcaps))
-		for nc := range gs.newcaps {
+		caps := make([]int, 0, len(gs.newCaps))
+		for nc := range gs.newCaps {
 			caps = append(caps, nc)
 		}
 		slices.Sort(caps)
 		nums := make([]int, 0, len(caps))
 		var totalAllocated, totalAllocations int
 		for _, newcap := range caps {
-			number := gs.newcaps[newcap]
+			number := gs.newCaps[newcap]
 			nums = append(nums, number)
 			printDebug("%d -> %d\n", newcap, number)
 			totalAllocated += newcap * number
 			totalAllocations += number
 		}
 		printDebug("Allocated: %d elems, allocations: %d\n", totalAllocated, totalAllocations)
-		gs.printChainsStat()
+		/*gs.printChainsStat()
 		best_cand := gs.bestCand
 		if best_cand.valid {
 			printDebug("BEST CHAIN: start_size=%d, end_size=%d, delta_allocs=%d, global_waste=%d\n",
 				best_cand.startCap, best_cand.endCap, best_cand.deltaAllocs, best_cand.globalWaste)
-		}
+		}*/
 	}
+	printDebug("--------------------------------------------\n")
 }
 
-func (st *globalStack) printChainsStat() {
+func (gs *globalStat) printTrimmedStack(st *trimmedStack) {
+	printDebug("Stack %d (num=%d, chain num=%d):\n", st.hash, st.num, len(st.chains))
+	for _, fr := range st.frames {
+		fileHash := fr.fileHash
+		printDebug("\t%s    %s:%s\n", fr.str, gs.hashToString[fileHash], fr.line)
+	}
+	if st.stat == nil {
+		printDebug("WARNING: no sorted global chains in the trimmed stack.\n")
+		return
+	}
+	sorted := make([]int, 0, len(st.stat))
+	for c := range st.stat {
+		sorted = append(sorted, c)
+	}
+	slices.Sort(sorted)
+	for _, c := range sorted {
+		chains := st.stat[c]
+		for _, ch := range chains {
+			allocs := st.chains[ch]
+			printDebug("\t%d -> %d: %d chains (allocs/chain=%d, elems/chain=%d, total_allocs=%d, total_elems=%d)\n",
+				ch.startCap, ch.endCap, allocs.numChains, allocs.allocsPerChain, allocs.elemsPerChain, allocs.totalAllocs, allocs.totalElems)
+		}
+		printDebug("===")
+	}
+
+	printDebug("--------------------------------------------\n")
+}
+
+/*func (st *globalStack) printChainsStat() {
 	if st.stat == nil {
 		printDebug("WARNING: no sorted global chains in the global stack.\n")
 		return
@@ -186,4 +215,4 @@ func (st *globalStack) printChainsStat() {
 				ch.startCap, ch.endCap, allocs.numChains, allocs.allocsPerChain, allocs.elemsPerChain, allocs.totalAllocs, allocs.totalElems)
 		}
 	}
-}
+}*/
