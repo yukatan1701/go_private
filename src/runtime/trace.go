@@ -404,6 +404,9 @@ func StartTrace(traceSlice bool) error {
 		trace.enabledWithAllocFree = true
 		debug.malloc = true
 	}
+	if debug.tracegrowslice.Load() != 0 {
+		trace.enabledGrowslice = true
+	}
 	trace.gen.Store(firstGen)
 
 	// Wait for exitingSyscall to drain.
@@ -784,6 +787,7 @@ func traceAdvance(stopTrace bool) {
 			trace.enabledWithAllocFree = false
 			debug.malloc = trace.debugMalloc
 		}
+		trace.enabledGrowslice = false
 	}
 
 	// Block until the trace reader has finished processing the last generation.
