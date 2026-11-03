@@ -353,7 +353,9 @@ func (s *trimmedStack) findBest() error {
 			continue
 		}
 		localCandidates := make([]candInfo, 0)
+		wastes := make([]int, 0, len(chains))
 		for i, ci := range chains {
+			wastes = wastes[:0]
 			cand := candInfo{startCap: ci.startCap, endCap: ci.endCap}
 			globalWaste := 0
 			newTotalAllocs := 0
@@ -366,6 +368,7 @@ func (s *trimmedStack) findBest() error {
 				wastePerChain := ci.endCap - cjAllocs.elemsPerChain
 				totalWaste := wastePerChain * cjAllocs.numChains
 				globalWaste += totalWaste
+				wastes = append(wastes, totalWaste)
 
 				totalAllocs := allocsPerChain * cjAllocs.numChains
 				totalElems := elemsPerChain * cjAllocs.numChains
@@ -408,6 +411,27 @@ func (s *trimmedStack) findBest() error {
 			const deltaAllocsThreshold = -300
 			if deltaAllocs >= deltaAllocsThreshold || globalWaste > 0 {
 				continue
+			}
+			// check if total waste exceeds global waste
+			// globalwaste is negative here
+			const ratioLimit = 0.05
+			skip := false
+			if globalWaste < 0 {
+				for j := 0; j < i; j++ {
+					if waste := wastes[j]; waste > 0 {
+						ratio := float64(waste) / float64(-globalWaste)
+						if ratio > ratioLimit {
+							if debugFindBest {
+								printDebug("Drop candidate: too large total_waste/global_waste for idx=%d: %f (limit=%f)\n", j, ratio, ratioLimit)
+							}
+							skip = true
+							break
+						}
+					}
+				}
+			}
+			if skip {
+				break
 			}
 			cand.globalWaste = globalWaste
 			cand.deltaAllocs = deltaAllocs

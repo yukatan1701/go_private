@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	debugFindBest  = false
-	debug          = false
+	debugFindBest  = true
+	debug          = true
 	maxPrintFrames = 5
 )
 
