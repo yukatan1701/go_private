@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	debugFindBest  = false
-	debug          = false
+	debugFindBest  = true
+	debug          = true
 	maxPrintFrames = 5
+	separator      = "--------------------------------------------\n"
 )
 
 func printDebug(format string, values ...any) {
@@ -77,7 +78,7 @@ func (g *globalStat) printGenerationStat(gen *generation) {
 	printDebug("GENERATION=%d\n", gen.id)
 	for _, st := range stacksByNum {
 		multistackChains, maxLen := st.multistackChainNumber()
-		printDebug("-------------------------------\n")
+		printDebug(separator)
 		printDebug("Stack %d (num=%d, hash=%d, chain num=%d, multistack chains=%d, maxlen=%d, intermediate=%v):\n",
 			st.id, st.num, st.hash, len(st.chains), multistackChains, maxLen, st.intermediate)
 		if multistackChains > 0 {
@@ -134,15 +135,18 @@ func (g *globalStat) printGlobalStat() {
 	})
 	printDebug("MERGED STATISTICS\n")
 	for i, gs := range stacks {
-		printDebug("--------------------------------------------\n")
-		printDebug("Stack %d (num=%d, hash=%d, unique chain num=%d):\n", i, gs.num, gs.hash, len(gs.chains))
+		printDebug(separator)
+		totalChains := 0
+		for _, allocs := range gs.chains {
+			totalChains += allocs.numChains
+		}
+		printDebug("Stack %d (num=%d, hash=%d, unique chain num=%d, total num=%d):\n", i, gs.num, gs.hash, len(gs.chains), totalChains)
 		maxFrames := maxPrintFrames
 		if len(gs.frames) < maxFrames {
 			maxFrames = len(gs.frames)
 		}
 		for _, fr := range gs.frames[:maxFrames] {
-			fileHash := fr.fileHash
-			printDebug("\t%s    %s:%s\n", fr.str, g.hashToString[fileHash], fr.line)
+			printDebug("\t%s    %s:%s\n", fr.str, g.hashToString[fr.fileHash], fr.line)
 		}
 		if maxFrames < len(gs.frames) {
 			printDebug("\t...\n")
@@ -162,11 +166,11 @@ func (g *globalStat) printGlobalStat() {
 			totalAllocations += number
 		}
 	}
-	printDebug("--------------------------------------------\n")
+	printDebug(separator)
 }
 
 func (gs *globalStat) printTrimmedStack(st *trimmedStack) {
-	printDebug("Stack %d (num=%d, chain num=%d):\n", st.hash, st.num, len(st.chains))
+	printDebug("Stack %d (num=%d, chain num=%d):\n", st.hash, st.numChains, len(st.chains))
 	for _, fr := range st.frames {
 		fileHash := fr.fileHash
 		printDebug("\t%s    %s:%s\n", fr.str, gs.hashToString[fileHash], fr.line)
@@ -190,5 +194,5 @@ func (gs *globalStat) printTrimmedStack(st *trimmedStack) {
 		printDebug("===")
 	}
 
-	printDebug("--------------------------------------------\n")
+	printDebug(separator)
 }
