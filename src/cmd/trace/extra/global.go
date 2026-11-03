@@ -406,11 +406,13 @@ func (s *trimmedStack) findBest() error {
 			deltaAllocs := newTotalAllocs - oldTotalAllocs
 			if debugFindBest {
 				printDebug("Global waste: %d elements\nDelta allocs: %d\n", globalWaste, deltaAllocs)
-				printDebug("-------------------------------------------\n")
 			}
-			const deltaAllocsThreshold = -300
-			if deltaAllocs >= deltaAllocsThreshold || globalWaste > 0 {
+			/*const deltaAllocsThreshold = -300
+			if deltaAllocs >= deltaAllocsThreshold {
 				continue
+			}*/
+			if deltaAllocs == 0 || globalWaste > 0 {
+				break
 			}
 			// check if total waste exceeds global waste
 			// globalwaste is negative here
@@ -423,6 +425,7 @@ func (s *trimmedStack) findBest() error {
 						if ratio > ratioLimit {
 							if debugFindBest {
 								printDebug("Drop candidate: too large total_waste/global_waste for idx=%d: %f (limit=%f)\n", j, ratio, ratioLimit)
+								printDebug("-------------------------------------------\n")
 							}
 							skip = true
 							break
@@ -435,11 +438,16 @@ func (s *trimmedStack) findBest() error {
 			}
 			cand.globalWaste = globalWaste
 			cand.deltaAllocs = deltaAllocs
+			if debugFindBest {
+				printDebug("***Add local candidate***: %v\n", cand)
+				printDebug("-------------------------------------------\n")
+			}
 			localCandidates = append(localCandidates, cand)
 		}
 		if len(localCandidates) < 1 {
 			if debugFindBest {
 				printDebug("No local candidates.\n")
+				printDebug("-------------------------------------------\n")
 			}
 			continue
 		}
