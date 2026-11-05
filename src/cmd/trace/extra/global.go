@@ -18,7 +18,7 @@ type candInfo struct {
 	startCap    int
 	endCap      int
 	deltaAllocs int
-	globalWaste int
+	deltaElems  int
 }
 
 type allocInfo struct {
@@ -295,6 +295,9 @@ func (g *globalStat) trimStacks(depth int) (map[stackHash]*trimmedStack, error) 
 	}
 	for _, ts := range trimmedStacks {
 		ts.filterAndSortChains()
+		if len(ts.stat) == 0 {
+			delete(trimmedStacks, ts.hash)
+		}
 	}
 	// TODO: return sorted?
 	return trimmedStacks, nil
@@ -314,6 +317,9 @@ func (g *globalStat) findBestSolution(depth int) error {
 		stacks: make([]profileStack, 0, len(trimmedStacks)),
 	}
 	for _, s := range trimmedStacks {
+		if len(s.stat) == 0 {
+			continue
+		}
 		if debug {
 			g.printTrimmedStack(s)
 		}
@@ -340,43 +346,95 @@ func (g *globalStat) findBestSolution(depth int) error {
 	return nil
 }
 
+func (s *trimmedStack) calculateProfit(chains []globalChain, bestIdx int) (deltaElems, deltaAllocs int) {
+	newTotalAllocs := 0
+	oldTotalAllocs := 0
+	bestChain := chains[bestIdx]
+	bestAllocs := s.chains[bestChain]
+	expectedElems := 0
+	actualElems := 0
+	for i := 0; i <= bestIdx; i++ {
+		ci := chains[i]
+		ciAllocs := s.chains[ci]
+		allocsPerChain := 1
+		elemsPerChain := bestChain.endCap
+		wastePerChain := bestChain.endCap - ciAllocs.elemsPerChain
+		totalWaste := wastePerChain * ciAllocs.numChains
+		deltaElems += totalWaste
+
+		totalAllocs := allocsPerChain * ciAllocs.numChains
+		totalElems := elemsPerChain * ciAllocs.numChains
+		if debugFindBest {
+			if bestIdx == i {
+				printDebug("--->")
+			} else {
+				printDebug("    ")
+			}
+			perc := float64(ciAllocs.numChains) / float64(s.totalChains) * 100
+			printDebug("End cap: %d: %d chains [%.2f%%] (allocs/chain=%d, elems/chain=%d, total_allocs=%d, total_elems=%d, waste/chain=%d, total_waste=%d)\n",
+				ci.endCap, ciAllocs.numChains, perc, allocsPerChain, elemsPerChain, totalAllocs, totalElems, wastePerChain, totalWaste)
+		}
+		newTotalAllocs += totalAllocs
+		oldTotalAllocs += ciAllocs.totalAllocs
+		expectedElems += ciAllocs.numChains * ci.endCap
+		actualElems += totalElems
+	}
+
+	for i := bestIdx + 1; i < len(chains); i++ {
+		ci := chains[i]
+		ciAllocs := s.chains[ci]
+		allocsPerChain := ciAllocs.allocsPerChain - bestIdx
+		elemsPerChain := ciAllocs.elemsPerChain - bestAllocs.elemsPerChain + bestChain.endCap
+		totalElems := elemsPerChain * ciAllocs.numChains
+		totalAllocs := allocsPerChain * ciAllocs.numChains
+		if debugFindBest {
+			perc := float64(ciAllocs.numChains) / float64(s.totalChains) * 100
+			printDebug("    End cap: %d: %d chains [%.2f%%] (allocs/chain=%d, elems/chain=%d, total_allocs=%d, total_elems=%d)\n",
+				ci.endCap, ciAllocs.numChains, perc, allocsPerChain, elemsPerChain, totalAllocs, totalElems)
+		}
+		deltaElems -= (ciAllocs.elemsPerChain - elemsPerChain) * ciAllocs.numChains
+		newTotalAllocs += totalAllocs
+		oldTotalAllocs += ciAllocs.totalAllocs
+		expectedElems += ciAllocs.numChains * ci.endCap
+		actualElems += totalElems
+	}
+	deltaAllocs = newTotalAllocs - oldTotalAllocs
+	if debugFindBest {
+		printDebug("Delta elems: %d elements\nDelta allocs: %d\n", deltaElems, deltaAllocs)
+		ratio := (float64(actualElems - expectedElems)) / float64(expectedElems) * 100
+		printDebug("Expected/actual elems: %d / %d (%+.2f%%)\n", expectedElems, actualElems, ratio)
+	}
+	return
+}
+
 func (s *trimmedStack) findBest() error {
-	if len(s.chains) == 0 || len(s.stat) == 0 {
+	if len(s.chains) == 0 || len(s.stat) == 0 || len(s.frames) == 0 {
 		return nil
 	}
 	totalChains := s.totalChains
 	if debugFindBest {
 		printDebug("ESTIMATION\n")
-		if len(s.frames) == 1 {
-			printDebug("CHECK STACK %d (num=%d, chains=%d) [%s]\n", s.hash, s.num, totalChains, s.frames[0].str)
-		} else {
-			printDebug("CHECK STACK %d (num=%d, chains=%d) [%s|%s]\n", s.hash, s.num, totalChains, s.frames[0].str, s.frames[1].str)
+		strs := make([]string, 0, len(s.frames))
+		for _, fr := range s.frames {
+			strs = append(strs, fr.str)
 		}
+		printDebug("CHECK STACK %d (num=%d, chains=%d) [%s]\n", s.hash, s.num, totalChains, strings.Join(strs, "|"))
 	}
 	candidates := make([]candInfo, 0, len(s.stat))
 	for startCap, chains := range s.stat {
 		if debugFindBest {
 			printDebug("=== Start cap: %d ===\n", startCap)
 		}
-		hasOneAllocPerChain := false
-		skip := false
+		oneAllocPerChain := 0
 		for _, ch := range chains {
 			if allocs, ok := s.chains[ch]; ok && allocs.allocsPerChain == 1 {
-				if hasOneAllocPerChain {
-					if debugFindBest {
-						printDebug("SKIP: has several allocs/chain == 1")
-					}
-					skip = true
-					break
-				} else {
-					hasOneAllocPerChain = true
-				}
+				oneAllocPerChain++
 			}
 		}
-		if skip {
+		if oneAllocPerChain > 1 {
+			printDebug("SKIP: has %d allocs/chain == 1\n", oneAllocPerChain)
 			continue
 		}
-		localCandidates := make([]candInfo, 0)
 
 		localTotalChains := 0
 		for _, ch := range chains {
@@ -388,124 +446,37 @@ func (s *trimmedStack) findBest() error {
 			geomean *= math.Pow(float64(ch.endCap), numchains/float64(localTotalChains))
 		}
 		if debugFindBest {
-			printDebug("Local total chains: %d\n", localTotalChains)
 			printDebug("GEOMEAN=%.3f\n", geomean)
 		}
-
-		wastes := make([]int, 0, len(chains))
-		for i, ci := range chains {
-			wastes = wastes[:0]
-			cand := candInfo{startCap: ci.startCap, endCap: ci.endCap}
-			globalWaste := 0
-			newTotalAllocs := 0
-			oldTotalAllocs := 0
-			for j := 0; j <= i; j++ {
-				cj := chains[j]
-				cjAllocs := s.chains[cj]
-				allocsPerChain := 1
-				elemsPerChain := ci.endCap
-				wastePerChain := ci.endCap - cjAllocs.elemsPerChain
-				totalWaste := wastePerChain * cjAllocs.numChains
-				globalWaste += totalWaste
-				wastes = append(wastes, totalWaste)
-
-				totalAllocs := allocsPerChain * cjAllocs.numChains
-				totalElems := elemsPerChain * cjAllocs.numChains
-				if debugFindBest {
-					if j == i {
-						printDebug("--->")
-					} else {
-						printDebug("    ")
-					}
-					perc := float64(cjAllocs.numChains) / float64(totalChains) * 100
-					printDebug("End cap: %d: %d chains [%.2f%%] (allocs/chain=%d, elems/chain=%d, total_allocs=%d, total_elems=%d, waste/chain=%d, total_waste=%d)\n",
-						cj.endCap, cjAllocs.numChains, perc, allocsPerChain, elemsPerChain, totalAllocs, totalElems, wastePerChain, totalWaste)
+		bestIdx := 0
+		for i := 0; i < len(chains)-1; i++ {
+			endLeft := float64(chains[i].endCap)
+			endRight := float64(chains[i+1].endCap)
+			if endLeft <= geomean && geomean < endRight {
+				distLeft := geomean - endLeft
+				distRight := endRight - geomean
+				if distLeft <= distRight {
+					bestIdx = i
+				} else {
+					bestIdx = i + 1
 				}
-				newTotalAllocs += totalAllocs
-				oldTotalAllocs += cjAllocs.totalAllocs
-			}
-			ciAllocs := s.chains[ci]
-			for j := i + 1; j < len(chains); j++ {
-				cj := chains[j]
-				cjAllocs := s.chains[cj]
-				allocsPerChain := cjAllocs.allocsPerChain - i
-				elemsPerChain := cjAllocs.elemsPerChain - ciAllocs.elemsPerChain + ci.endCap
-				totalElems := elemsPerChain * cjAllocs.numChains
-				totalAllocs := allocsPerChain * cjAllocs.numChains
-				if debugFindBest {
-					perc := float64(cjAllocs.numChains) / float64(totalChains) * 100
-					printDebug("    End cap: %d: %d chains [%.2f%%] (allocs/chain=%d, elems/chain=%d, total_allocs=%d, total_elems=%d)\n",
-						cj.endCap, cjAllocs.numChains, perc, allocsPerChain, elemsPerChain, totalAllocs, totalElems)
-				}
-				if elemsPerChain > cjAllocs.elemsPerChain {
-					return fmt.Errorf("%s: elemsPerChain > ch.allocs.elemsPerChain", parsingErrPrefix)
-				}
-				deltaElems := (cjAllocs.elemsPerChain - elemsPerChain) * cjAllocs.numChains
-				globalWaste -= deltaElems
-				newTotalAllocs += totalAllocs
-				oldTotalAllocs += cjAllocs.totalAllocs
-			}
-			deltaAllocs := newTotalAllocs - oldTotalAllocs
-			if debugFindBest {
-				printDebug("Global waste: %d elements\nDelta allocs: %d\n", globalWaste, deltaAllocs)
-			}
-			/*const deltaAllocsThreshold = -100
-			if deltaAllocs >= deltaAllocsThreshold {
-				continue
-			}*/
-			/*if globalWaste > 0 {
-				break
-			}*/
-			// check if total waste exceeds global waste
-			// globalwaste is negative here
-			const ratioLimit = 0.05
-			skip := false
-			if globalWaste < 0 {
-				for j := 0; j < i; j++ {
-					if waste := wastes[j]; waste > 0 {
-						cj := chains[j]
-						cjAllocs := s.chains[cj]
-						// We have to normalize it for small
-						perc := float64(cjAllocs.numChains) / float64(totalChains)
-						normWaste := float64(waste) * perc
-						ratio := normWaste / float64(-globalWaste)
-						if ratio > ratioLimit {
-							if debugFindBest {
-								printDebug("Drop candidate: too large (total_waste*chain_weight)/global_waste for idx=%d: %f (limit=%f)\n", j, ratio, ratioLimit)
-								printDebug("-------------------------------------------\n")
-							}
-							skip = true
-							break
-						}
-					}
-				}
-			}
-			if skip {
 				break
 			}
-			cand.globalWaste = globalWaste
-			cand.deltaAllocs = deltaAllocs
-			if debugFindBest {
-				printDebug("***Add local candidate***: %v\n", cand)
-				printDebug("-------------------------------------------\n")
-			}
-			localCandidates = append(localCandidates, cand)
 		}
-		if len(localCandidates) < 1 {
-			if debugFindBest {
-				printDebug("No local candidates.\n")
-				printDebug("-------------------------------------------\n")
-			}
+
+		deltaElems, deltaAllocs := s.calculateProfit(chains, bestIdx)
+		for deltaElems >= 0 && bestIdx > 0 {
+			bestIdx--
+			deltaElems, deltaAllocs = s.calculateProfit(chains, bestIdx)
+		}
+		if deltaElems >= 0 {
 			continue
 		}
-		bestCand := localCandidates[0]
-		for i := 1; i < len(localCandidates); i++ {
-			lc, bc := localCandidates[i], bestCand
-			if lc.globalWaste < bc.globalWaste {
-				bestCand = localCandidates[i]
-			} else if lc.globalWaste == bc.globalWaste && lc.deltaAllocs < bc.deltaAllocs {
-				bestCand = lc
-			}
+		bestCand := candInfo{
+			startCap:    chains[bestIdx].startCap,
+			endCap:      chains[bestIdx].endCap,
+			deltaElems:  deltaElems,
+			deltaAllocs: deltaAllocs,
 		}
 		candidates = append(candidates, bestCand)
 	}
@@ -513,24 +484,21 @@ func (s *trimmedStack) findBest() error {
 		return nil
 	}
 	slices.SortFunc(candidates, func(x, y candInfo) int {
-		if x.globalWaste != y.globalWaste {
-			return x.globalWaste - y.globalWaste
+		if x.deltaElems != y.deltaElems {
+			return x.deltaElems - y.deltaElems
 		}
 		if x.deltaAllocs != y.deltaAllocs {
 			return x.deltaAllocs - y.deltaAllocs
 		}
 		return x.startCap - y.startCap
 	})
-	bestCand := candidates[0]
-	if bestCand.globalWaste >= 0 {
-		return nil
-	}
-	bestCand.valid = true
+	totalBestCand := candidates[0]
+	totalBestCand.valid = true
 	if debugFindBest {
-		printDebug("FOUND BEST CHAIN (depth=%d): start_size=%d, end_size=%d, delta_allocs=%d, global_waste=%d\n",
-			len(s.frames), bestCand.startCap, bestCand.endCap, bestCand.deltaAllocs, bestCand.globalWaste)
+		printDebug("FOUND BEST CHAIN (depth=%d): start_size=%d, end_size=%d, delta_allocs=%d, delta_elems=%d\n",
+			len(s.frames), totalBestCand.startCap, totalBestCand.endCap, totalBestCand.deltaAllocs, totalBestCand.deltaElems)
 	}
-	s.bestCand = bestCand
+	s.bestCand = totalBestCand
 	return nil
 }
 
