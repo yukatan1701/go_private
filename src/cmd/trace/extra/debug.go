@@ -166,7 +166,7 @@ func (g *globalStat) printGlobalStat() {
 }
 
 func (gs *globalStat) printTrimmedStack(st *trimmedStack) {
-	printDebug("Stack %d (num=%d, chain num=%d):\n", st.hash, st.num, len(st.chains))
+	printDebug("Stack %d (num=%d, chain num=%d):\n", st.hash, st.num, st.totalChains)
 	for _, fr := range st.frames {
 		fileHash := fr.fileHash
 		printDebug("\t%s    %s:%s\n", fr.str, gs.hashToString[fileHash], fr.line)
