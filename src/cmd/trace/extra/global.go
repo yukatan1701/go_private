@@ -242,13 +242,34 @@ func (st *trimmedStack) filterAndSortChains() {
 			delete(stat, start)
 		}
 	}
-	for _, chains := range stat {
+	for idx, chains := range stat {
 		slices.SortFunc(chains, func(x, y globalChain) int {
 			if x.startCap != y.startCap {
 				return x.startCap - y.startCap
 			}
 			return x.endCap - y.endCap
 		})
+		const chainWeightThreshold = 0.02
+		j := 0
+		for i := 0; i < len(chains); i++ {
+			ch := chains[i]
+			allocs := st.chains[ch]
+			ratio := float64(allocs.numChains) / float64(st.totalChains)
+			if ratio > chainWeightThreshold {
+				chains[j] = ch
+				j++
+			} else {
+				if debugFindBest {
+					printDebug("Skip chain <start=%d, end=%d>: small weight (%.2f%%, min %.2f%%)\n",
+						ch.startCap, ch.endCap, ratio*100, chainWeightThreshold*100)
+				}
+			}
+		}
+		if j == 0 {
+			delete(stat, idx)
+			continue
+		}
+		stat[idx] = chains[:j]
 	}
 	st.stat = stat
 }
@@ -309,7 +330,7 @@ func (g *globalStat) findBestSolution(depth int) error {
 	if err != nil {
 		return err
 	}
-	if debug {
+	if debug > 0 {
 		printDebug("TRIMMED STACKS (depth=%d)\n", depth)
 	}
 	stat := depthStat{
@@ -320,7 +341,7 @@ func (g *globalStat) findBestSolution(depth int) error {
 		if len(s.stat) == 0 {
 			continue
 		}
-		if debug {
+		if debug > 0 {
 			g.printTrimmedStack(s)
 		}
 		if err = s.findBest(); err != nil {
@@ -396,13 +417,13 @@ func (s *trimmedStack) calculateProfit(chains []globalChain, bestIdx int) (delta
 		newTotalAllocs += totalAllocs
 		oldTotalAllocs += ciAllocs.totalAllocs
 		expectedElems += ciAllocs.numChains * ci.endCap
-		actualElems += totalElems
+		actualElems += ci.endCap * ciAllocs.numChains
 	}
 	deltaAllocs = newTotalAllocs - oldTotalAllocs
 	if debugFindBest {
 		printDebug("Delta elems: %d elements\nDelta allocs: %d\n", deltaElems, deltaAllocs)
 		ratio := (float64(actualElems - expectedElems)) / float64(expectedElems) * 100
-		printDebug("Expected/actual elems: %d / %d (%+.2f%%)\n", expectedElems, actualElems, ratio)
+		printDebug("Expected/actual elems: %d/%d (%+.2f%%)\n", expectedElems, actualElems, ratio)
 	}
 	return
 }

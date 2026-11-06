@@ -34,7 +34,7 @@ func ProcessExtraTrace(trc io.Reader) error {
 			if err := gs.addGeneration(gen); err != nil {
 				return err
 			}
-			if debug {
+			if debug > 0 {
 				gs.printGenerationStat(gen)
 			}
 			gen = newGeneration(gen.id + 1)
@@ -56,12 +56,12 @@ func ProcessExtraTrace(trc io.Reader) error {
 		if err := gs.addGeneration(gen); err != nil {
 			return err
 		}
-		if debug {
+		if debug > 0 {
 			gs.printGenerationStat(gen)
 		}
 	}
 	gs.filterStacks()
-	if debug {
+	if debug > 0 {
 		gs.printGlobalStat()
 	}
 	for i := 1; i <= maxStackDepth; i++ {
