@@ -64,10 +64,11 @@ and is only actively tested on that browser.
 `
 
 var (
-	httpFlag  = flag.String("http", "localhost:0", "HTTP server listen address (e.g., ':6060')")
-	pprofFlag = flag.String("pprof", "", "print a pprof-like profile instead")
-	debugFlag = flag.String("d", "", "print debug info and exit (modes: wire, parsed, footprint)")
-	profExtra = flag.String("profextra", "", "generate a profile with extra data (modes: slice)")
+	httpFlag      = flag.String("http", "localhost:0", "HTTP server listen address (e.g., ':6060')")
+	pprofFlag     = flag.String("pprof", "", "print a pprof-like profile instead")
+	debugFlag     = flag.String("d", "", "print debug info and exit (modes: wire, parsed, footprint)")
+	profExtra     = flag.String("profextra", "", "generate a profile with extra data (modes: slice)")
+	traceListFile = flag.String("tracelistfile", "", "file containing trace file names")
 
 	// The binary file name, left here for serveSVGProfile.
 	programBinary string
@@ -141,7 +142,7 @@ func main() {
 	if *profExtra != "" {
 		switch *profExtra {
 		case "slice":
-			logAndDie(extra.ProcessExtraTrace(tracef))
+			logAndDie(extra.ProcessExtraTrace(tracef, *traceListFile))
 		default:
 			logAndDie(fmt.Errorf("invalid profextra mode %s, want one of: slice", *profExtra))
 		}
