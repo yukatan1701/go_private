@@ -72,7 +72,7 @@ func (g *globalStat) emitProfile(w io.Writer) error {
 	var b bytes.Buffer
 	b.WriteString(header)
 
-	if len(g.depthStats) == 0 {
+	if !hasProfileStacks(g.depthStats) {
 		// No statistics, emit an empty profile with func_number == -1.
 		fmt.Fprintln(&b, "-1")
 		_, err := w.Write(b.Bytes())
@@ -103,6 +103,11 @@ func (g *globalStat) emitProfile(w io.Writer) error {
 		fname := g.hashToString[stringHash(hash)]
 		fmt.Fprintf(&b, "%d %s\n", id, fname)
 	}
+	// findBestSolution appends one depthStat for every depth in
+	// [0, maxStackDepth], including empty ones, so depthStats is dense and
+	// len(depthStats)-1 is the maximum depth. Keeping it dense is what makes
+	// the number of tree sections below match the max_depth header, which the
+	// compiler's profile reader requires.
 	depth := len(g.depthStats) - 1
 	fmt.Fprintf(&b, "%d\n", depth)
 	for _, stat := range g.depthStats {
@@ -119,4 +124,15 @@ func (g *globalStat) emitProfile(w io.Writer) error {
 	}
 	_, err := w.Write(b.Bytes())
 	return err
+}
+
+// hasProfileStacks reports whether stats contains at least one stack. An
+// otherwise empty set of depth statistics is emitted as func_number == -1.
+func hasProfileStacks(stats []depthStat) bool {
+	for _, ds := range stats {
+		if len(ds.stacks) > 0 {
+			return true
+		}
+	}
+	return false
 }

@@ -405,15 +405,13 @@ func (g *globalStat) findBestSolution(depth uint) error {
 		stacks: make([]profileStack, 0, len(trimmedStacks)),
 	}
 	for _, s := range trimmedStacks {
-		if len(s.stat) == 0 {
-			continue
-		}
 		if debug > 0 {
 			g.printTrimmedStack(s)
 		}
 		if err = s.findBest(); err != nil {
 			return err
 		}
+		// Could not find the best candidate for this stack.
 		if !s.bestCand.valid {
 			continue
 		}
@@ -429,9 +427,6 @@ func (g *globalStat) findBestSolution(depth uint) error {
 			})
 		}
 		stat.stacks = append(stat.stacks, ps)
-	}
-	if len(stat.stacks) == 0 {
-		return nil
 	}
 	g.depthStats = append(g.depthStats, stat)
 	return nil

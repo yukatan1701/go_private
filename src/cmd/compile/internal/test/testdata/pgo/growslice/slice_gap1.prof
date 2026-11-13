@@ -1,0 +1,8 @@
+EXTRA SLICE PROFILE V1
+2
+0 example.com/pgo/growslice.doAppend
+1 example.com/pgo/growslice.A
+1
+1
+1 0 17 0 4
+0

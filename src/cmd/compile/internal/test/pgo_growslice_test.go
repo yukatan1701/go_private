@@ -98,22 +98,30 @@ go 1.28
 	}
 }
 
-func TestPGOGrowslice(t *testing.T) {
+func growsliceSrcDir(t *testing.T) string {
+	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("error getting wd: %v", err)
 	}
-	srcDir := filepath.Join(wd, "testdata/pgo/growslice")
+	return filepath.Join(wd, "testdata/pgo/growslice")
+}
 
-	// Copy the module to a scratch location so we can add a go.mod.
+// setupPGOGrowslice copies the test module and the given slice profile into a
+// scratch directory so the test can add a go.mod.
+func setupPGOGrowslice(t *testing.T, profile string) string {
+	t.Helper()
+	srcDir := growsliceSrcDir(t)
 	dir := t.TempDir()
-
-	for _, file := range []string{"growslice_predicted.go", "growslice_predicted_test.go", sliceProfFile} {
+	for _, file := range []string{"growslice_predicted.go", "growslice_predicted_test.go", profile} {
 		if err := copyFile(filepath.Join(dir, file), filepath.Join(srcDir, file)); err != nil {
 			t.Fatalf("error copying %s: %v", file, err)
 		}
 	}
+	return dir
+}
 
+func TestPGOGrowslice(t *testing.T) {
 	want := []growslice{
 		{
 			pos:      "./growslice_predicted.go:17:14: doAppend",
@@ -132,5 +140,59 @@ func TestPGOGrowslice(t *testing.T) {
 		},
 	}
 
-	testPGOGrowslice(t, dir, want, sliceProfFile)
+	testPGOGrowslice(t, setupPGOGrowslice(t, sliceProfFile), want, sliceProfFile)
+}
+
+// TestPGOGrowsliceDepth0Empty checks that statistics from a deeper depth are
+// used when the profile has no depth-0 entry for the callsite. The generator
+// may omit unprofitable merged stacks while still recording profitable
+// per-callsite stacks at a deeper depth.
+func TestPGOGrowsliceDepth0Empty(t *testing.T) {
+	const profile = "slice_gap0.prof"
+	want := []growslice{
+		{
+			pos:      "./growslice_predicted.go:25:11: A",
+			startCap: "0",
+			predCap:  "64",
+		},
+		{
+			pos:      "./growslice_predicted.go:27:11: A",
+			startCap: "0",
+			predCap:  "4",
+		},
+	}
+
+	testPGOGrowslice(t, setupPGOGrowslice(t, profile), want, profile)
+}
+
+// TestPGOGrowsliceDepthFallback checks that a missing deeper-depth entry, or
+// an entry whose inlining chain does not match, falls back to the shallower
+// statistics instead of failing the compilation.
+func TestPGOGrowsliceDepthFallback(t *testing.T) {
+	// doAppend is either compiled standalone (depth 0) or inlined into A
+	// (depth 1). With only depth-0 statistics available, all three appends
+	// use the depth-0 prediction.
+	want := []growslice{
+		{
+			pos:      "./growslice_predicted.go:17:14: doAppend",
+			startCap: "0",
+			predCap:  "4",
+		},
+		{
+			pos:      "./growslice_predicted.go:25:11: A",
+			startCap: "0",
+			predCap:  "4",
+		},
+		{
+			pos:      "./growslice_predicted.go:27:11: A",
+			startCap: "0",
+			predCap:  "4",
+		},
+	}
+
+	for _, profile := range []string{"slice_gap1.prof", "slice_gap2.prof"} {
+		t.Run(profile, func(t *testing.T) {
+			testPGOGrowslice(t, setupPGOGrowslice(t, profile), want, profile)
+		})
+	}
 }
