@@ -539,6 +539,20 @@ func NewSliceProfile(profileFile string) (*SliceProfile, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Split(bufio.ScanLines)
 
+	// nextLine returns the next line of the profile. A premature end of file
+	// is reported by bufio.Scanner as Scan returning false with a nil error;
+	// turn that into an explicit error so truncated profiles fail with a
+	// clear message instead of an unrelated parse error on an empty line.
+	nextLine := func(what string) (string, error) {
+		if scanner.Scan() {
+			return scanner.Text(), nil
+		}
+		if err := scanner.Err(); err != nil {
+			return "", fmt.Errorf("slice profile is corrupted: %w", err)
+		}
+		return "", fmt.Errorf("slice profile is corrupted: unexpected end of file while reading %s", what)
+	}
+
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			return nil, fmt.Errorf("error reading slice profile: %w", err)
@@ -568,12 +582,10 @@ func NewSliceProfile(profileFile string) (*SliceProfile, error) {
 
 	idToFunc := make(map[int]string)
 	for i := 0; i < funcNumber; i++ {
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
-			}
+		line, err := nextLine("function table")
+		if err != nil {
+			return nil, err
 		}
-		line := scanner.Text()
 		tokens := strings.SplitN(line, " ", 2)
 		if len(tokens) < 2 {
 			return nil, fmt.Errorf("slice profile is corrupted: expected 2 arguments, got %d", len(tokens))
@@ -585,12 +597,11 @@ func NewSliceProfile(profileFile string) (*SliceProfile, error) {
 		idToFunc[id] = tokens[1]
 	}
 
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return nil, fmt.Errorf("slice profile is corrupted: %w", err)
-		}
+	line, err := nextLine("max depth")
+	if err != nil {
+		return nil, err
 	}
-	maxDepth, err := strconv.Atoi(scanner.Text())
+	maxDepth, err := strconv.Atoi(line)
 	if err != nil {
 		return nil, fmt.Errorf("error reading slice profile: %w", err)
 	}
@@ -603,23 +614,20 @@ func NewSliceProfile(profileFile string) (*SliceProfile, error) {
 	}
 
 	for depth := 0; depth <= maxDepth; depth++ {
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
-			}
+		line, err := nextLine("depth header")
+		if err != nil {
+			return nil, err
 		}
-		stackNum, err := strconv.Atoi(scanner.Text())
+		stackNum, err := strconv.Atoi(line)
 		if err != nil {
 			return nil, fmt.Errorf("error reading slice profile: %w", err)
 		}
 		tree := make(map[GrowsliceCallsite]*GrowsliceNode)
 		for j := 0; j < stackNum; j++ {
-			if !scanner.Scan() {
-				if err := scanner.Err(); err != nil {
-					return nil, fmt.Errorf("slice profile is corrupted: %w", err)
-				}
+			line, err := nextLine("stack")
+			if err != nil {
+				return nil, err
 			}
-			line := scanner.Text()
 			tokens := strings.Split(line, " ")
 			if len(tokens) == 0 {
 				return nil, fmt.Errorf("slice profile is corrupted: not enough tokens for a stack description")
