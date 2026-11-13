@@ -132,7 +132,7 @@ func (w *walkState) walkGrowslice(call *ir.CallExpr, slice *ir.Name, init *ir.No
 	elemtype := slice.Type().Elem()
 	elemtypeptr := reflectdata.TypePtrAt(w.curfunc, base.Pos, elemtype)
 	if call.AppendInfo != nil {
-		if base.Debug.SliceProfDebug > 0 {
+		if base.Debug.PGOSliceDebug > 0 {
 			fmt.Printf("%v: %v: generate growsliceSpecial (stage=walk) (startCap=%d, predictedCap=%d)\n",
 				ir.Line(call), ir.FuncName(w.curfunc), call.AppendInfo.StartCap, call.AppendInfo.PredictedCap)
 		}

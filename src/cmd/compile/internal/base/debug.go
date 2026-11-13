@@ -46,7 +46,6 @@ type DebugFlags struct {
 	GCProg                int    `help:"print dump of GC programs"`
 	GCStart               int    `help:"specify \"starting\" compiler's heap size in MiB" concurrent:"ok"`
 	Gossahash             string `help:"hash value for use in debugging the compiler"`
-	SliceProfDebug        int    `help:"debug growsliceprofile"`
 	Html                  string `help:"dump named function to ssa.html" concurrent:"ok"`
 	InlFuncsWithClosures  int    `help:"allow functions with closures to be inlined" concurrent:"ok"`
 	InlStaticInit         int    `help:"allow static initialization of inlined calls" concurrent:"ok"`
@@ -82,6 +81,7 @@ type DebugFlags struct {
 	ABIWrap               int    `help:"print information about ABI wrapper generation"`
 	MayMoreStack          string `help:"call named function before all stack growth checks" concurrent:"ok"`
 	PGODebug              int    `help:"debug profile-guided optimizations"`
+	PGOSliceDebug         int    `help:"debug profile-guided slice growing optimizations" concurrent:"ok"`
 	PGOHash               string `help:"hash value for debugging profile-guided optimizations" concurrent:"ok"`
 	PGOInline             int    `help:"enable profile-guided inlining" concurrent:"ok"`
 	PGOInlineCDFThreshold string `help:"cumulative threshold percentage for determining call sites as hot candidates for inlining" concurrent:"ok"`

@@ -166,12 +166,12 @@ func ProcessExtraTrace(trc io.Reader, traceListFile string) error {
 	if debug > 0 {
 		gs.printGlobalStat()
 	}
-	for i := 1; i <= maxStackDepth; i++ {
+	for i := uint(0); i <= maxStackDepth; i++ {
 		err := gs.findBestSolution(i)
 		if err != nil {
 			return err
 		}
 	}
-	err := gs.emitProfile(os.Stdout, maxStackDepth)
+	err := gs.emitProfile(os.Stdout)
 	return err
 }

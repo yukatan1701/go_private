@@ -426,7 +426,7 @@ func growsliceSpecial(oldPtr unsafe.Pointer, newLen, oldCap, num int, et *_type,
 	//   print(len(s), "\n")
 	// }
 	if overflow || capmem > maxAlloc {
-		panic(errorString("growsliceSpecial: len out of range"))
+		panic(errorString("growslice: len out of range"))
 	}
 
 	// growsliceSpecial adds only this block to increase capacity if necessary.
@@ -435,11 +435,11 @@ func growsliceSpecial(oldPtr unsafe.Pointer, newLen, oldCap, num int, et *_type,
 		newcap = predCap
 		capmemExtended, overflow := math.MulUintptr(et.Size_, uintptr(newcap))
 		// TODO: do we need to call roundupsize considering the fact that
-		// extendedCap already includes bytes added by roundupsize?
+		// predCap already includes bytes added by roundupsize?
 		//
 		// capmemExtended = roundupsize(capmemExtended, noscan)
-		if overflow || capmemExtended < capmem {
-			panic(errorString("growsliceSpecial: extended capacity is out of range"))
+		if overflow || capmemExtended < capmem || capmemExtended > maxAlloc {
+			panic(errorString("growslice: len out of range"))
 		}
 		capmem = capmemExtended
 	}

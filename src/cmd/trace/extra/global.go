@@ -41,9 +41,9 @@ import (
 //
 // Then we calculate optimal capacities for each call stack. We do this for all
 // desirable depths (see a comment in profile.go). For example, when processing
-// depth=1, we merge all stacks with the same top frame and form a "trimmed
+// depth=0, we merge all stacks with the same top frame and form a "trimmed
 // stack" of length=1. Then we find a best solution for each one. When
-// processing depth=2, we merge stacks with the same top-2 frames
+// processing depth=1, we merge stacks with the same top-2 frames
 // and find the best solution for these trimmed stacks of length=2. And so on.
 // We need this to support context-sensitivity and inlining.
 
@@ -139,7 +139,7 @@ type globalStat struct {
 	hashToString map[stringHash]string
 	globalStacks map[stackHash]*globalStack
 	globalFrames map[frameHash]*globalFrame
-	depthToStat  []depthStat
+	depthStats   []depthStat
 }
 
 func (g *globalStat) addToGlobalFrame(gen *generation, f *frame) (*globalFrame, error) {
@@ -332,14 +332,14 @@ func (st *trimmedStack) filterAndSortChains() {
 	st.stat = stat
 }
 
-func (g *globalStat) trimStacks(depth int) (map[stackHash]*trimmedStack, error) {
-	if depth < 1 {
-		return nil, nil
-	}
+func (g *globalStat) trimStacks(depth uint) ([]*trimmedStack, error) {
 	trimmedStacks := make(map[stackHash]*trimmedStack)
 	for _, gs := range g.globalStacks {
+		if len(gs.frames) < 1 {
+			continue
+		}
 		var b strings.Builder
-		length := min(len(gs.frames), depth)
+		length := min(uint(len(gs.frames)), depth+1)
 		frames := gs.frames[:length]
 		for _, fr := range frames {
 			b.WriteString(fr.str)
@@ -377,10 +377,23 @@ func (g *globalStat) trimStacks(depth int) (map[stackHash]*trimmedStack, error) 
 			delete(trimmedStacks, ts.hash)
 		}
 	}
-	return trimmedStacks, nil
+	// Sort stacks by hash to make a profile deterministic.
+	sorted := make([]*trimmedStack, 0, len(trimmedStacks))
+	for _, st := range trimmedStacks {
+		sorted = append(sorted, st)
+	}
+	slices.SortFunc(sorted, func(x, y *trimmedStack) int {
+		if x.hash < y.hash {
+			return -1
+		} else if x.hash > y.hash {
+			return 1
+		}
+		return 0
+	})
+	return sorted, nil
 }
 
-func (g *globalStat) findBestSolution(depth int) error {
+func (g *globalStat) findBestSolution(depth uint) error {
 	trimmedStacks, err := g.trimStacks(depth)
 	if err != nil {
 		return err
@@ -406,9 +419,9 @@ func (g *globalStat) findBestSolution(depth int) error {
 			continue
 		}
 		ps := profileStack{
-			frames:   make([]profileFrame, 0, len(s.frames)),
-			startCap: s.bestCand.startCap,
-			endCap:   s.bestCand.endCap,
+			frames:       make([]profileFrame, 0, len(s.frames)),
+			startCap:     s.bestCand.startCap,
+			predictedCap: s.bestCand.endCap,
 		}
 		for _, fr := range s.frames {
 			ps.frames = append(ps.frames, profileFrame{
@@ -418,7 +431,10 @@ func (g *globalStat) findBestSolution(depth int) error {
 		}
 		stat.stacks = append(stat.stacks, ps)
 	}
-	g.depthToStat = append(g.depthToStat, stat)
+	if len(stat.stacks) == 0 {
+		return nil
+	}
+	g.depthStats = append(g.depthStats, stat)
 	return nil
 }
 
@@ -563,10 +579,10 @@ func (s *trimmedStack) calculateProfit(chains []globalChain, bestIdx int) (delta
 //
 // Total:
 //
-//	deltaAllocs = −1400
-//	deltaElems  = 43400 - 46900 = −2100
+//	deltaAllocs = -1400
+//	deltaElems  = 43400 - 46900 = -2100
 //
-//	candidate_0 = {startCap: 0, endCap: 4, deltaAllocs: −1400, deltaElems: -2100}
+//	candidate_0 = {startCap: 0, endCap: 4, deltaAllocs: -1400, deltaElems: -2100}
 //
 // For startCap == 8, the result is the following (geomean=362):
 //

@@ -3,10 +3,10 @@
 // license that can be found in the LICENSE file.
 
 // WARNING: Please avoid updating this file. If this file needs to be updated,
-// then a new slice.pprof file should be generated:
+// then a new slice.prof file should be generated:
 //
 //  $ cd $GOROOT/src/cmd/compile/internal/test/testdata/pgo/growslice/
-//  $ GODEBUG=tracegrowslice=1 go test -bench=. -benchtime=0.01s -trace=trace.out
+//  $ GODEBUG=tracegrowslice=1 go test -bench=. -benchtime=10000x -trace=trace.out
 //  $ go tool trace -profextra=slice trace.out > slice.prof
 
 package main

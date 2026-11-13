@@ -18,8 +18,8 @@ func LoadAppendStatistics(funcs []*ir.Func, prof *SliceProfile) {
 }
 
 type callPos struct {
-	fileIdx int32
-	line    uint
+	filename string
+	line     uint
 }
 
 func loadAppendStatistics(fn *ir.Func, prof *SliceProfile) {
@@ -36,10 +36,14 @@ func loadAppendStatistics(fn *ir.Func, prof *SliceProfile) {
 		name := fname
 		parent := base.Ctxt.PosTable.Pos(n.Pos()).Base().InliningIndex()
 		if parent >= 0 {
+			// If a function containing append has been inlined,
+			// find its actual name instead of the outermost caller name.
 			name = base.Ctxt.InlTree.InlinedFunction(parent).Name
 		}
-		line := int(base.Ctxt.InnermostPos(n.Pos()).RelLine())
+		ipos := base.Ctxt.InnermostPos(n.Pos())
+		line := int(ipos.RelLine())
 		cs := GrowsliceCallsite{Func: name, Line: line}
+		// If there is no such a callsite on depth=0, it will not appear on other depths.
 		if _, ok := prof.DepthTrees[0][cs]; !ok {
 			return
 		}
@@ -51,9 +55,13 @@ func loadAppendStatistics(fn *ir.Func, prof *SliceProfile) {
 			parentLine = base.Ctxt.InlTree.CallPos(inlIndex).Line()
 		}
 		inlChain = append(inlChain, GrowsliceCallsite{Func: fname, Line: int(parentLine)})
-		depth := min(len(inlChain), len(prof.DepthTrees))
-		node := prof.DepthTrees[depth-1][cs]
-		for i := 1; i < len(inlChain); i++ {
+		depth := min(len(inlChain), len(prof.DepthTrees)) - 1
+		node, ok := prof.DepthTrees[depth][cs]
+		if !ok || node == nil {
+			base.Fatalf("Callsite '%s:%d' appeared on depth=0 but was missed on depth=%d\n", cs.Func, cs.Line, depth)
+		}
+		// Find the inlining chain in the callsite tree.
+		for i := 1; i <= depth; i++ {
 			callsite := inlChain[i]
 			if caller, ok := node.Callers[callsite]; !ok {
 				// No such inlining chain in the profile.
@@ -63,22 +71,22 @@ func loadAppendStatistics(fn *ir.Func, prof *SliceProfile) {
 			}
 		}
 		stat := node.Stat
-		if base.Debug.SliceProfDebug > 0 {
+		if base.Debug.PGOSliceDebug > 0 {
 			fmt.Printf("%v: %v: found statistics for append (depth=%d, maxDepth=%d): start_cap=%d, predicted_cap=%d\n",
-				ir.Line(n), ir.FuncName(fn), depth, len(prof.DepthTrees), stat.StartCap, stat.PredictedCap)
+				ir.Line(n), ir.FuncName(fn), depth, len(prof.DepthTrees)-1, stat.StartCap, stat.PredictedCap)
 		}
-		exp := n.(*ir.CallExpr)
-		pos := callPos{fileIdx: exp.Pos().FileIndex(), line: exp.Pos().Line()}
+		pos := callPos{filename: ipos.AbsFilename(), line: ipos.RelLine()}
 		if call, ok := posToCall[pos]; ok {
 			// We already have a call to growslice on this line.
 			// Slice profile does not consider columns and we cannot distinguish
 			// appends for different slices. So, skip such calls conservatively.
 			call.AppendInfo = nil
-			if base.Debug.SliceProfDebug > 0 {
+			if base.Debug.PGOSliceDebug > 0 {
 				fmt.Printf("%v: %v: found several appends on the same position, skip them all.\n",
 					ir.Line(n), ir.FuncName(fn))
 			}
 		} else {
+			exp := n.(*ir.CallExpr)
 			exp.AppendInfo = &ir.AppendStat{StartCap: stat.StartCap, PredictedCap: stat.PredictedCap}
 			posToCall[pos] = exp
 		}

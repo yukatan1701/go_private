@@ -21,21 +21,21 @@ import (
 // we will calculate an optimal slice capacity for each desirable call stack
 // depth. For example:
 //
-// depth == 1: calculate a capacity for each stack having 'func1' as a top frame.
-// depth == 2: calculate a capacity for each stack having 'func1|func2:30' as 2 top frames.
-// depth >= 3: in a similar manner
+// depth == 0: calculate a capacity for each stack having 'func1' as a top frame.
+// depth == 1: calculate a capacity for each stack having 'func1|func2:30' as 2 top frames.
+// depth >= 2: in a similar manner
 //
 // When maxStackDepth is set to N, the profile stores an information about all
 // depths <= N. While generating a call to a special growslice, the compiler
 // checks an inlining depth and looks for a corresponding information in a profile.
 //
-// For now, we set stack depth to 2 although all other values are supported.
+// For now, we set stack depth to 1 although all other values are supported.
 // TODO: pass this value as argument to 'go tool trace'?
-const maxStackDepth = 2
+const maxStackDepth = 1
 
 // Call stack info for each desirable depth.
 type depthStat struct {
-	depth  int
+	depth  uint
 	stacks []profileStack
 }
 
@@ -45,9 +45,9 @@ type profileFrame struct {
 }
 
 type profileStack struct {
-	frames   []profileFrame
-	startCap int
-	endCap   int
+	frames       []profileFrame
+	startCap     int
+	predictedCap int
 }
 
 // Slice profile structure:
@@ -59,46 +59,54 @@ type profileStack struct {
 // ...
 // func_id_n func_name_n
 // max_depth
+// stack_num_for_depth_0
+// frame_num_0 func_id_x line_x start_cap predicted_cap
+// frame_num_1 ...
+// ...
 // stack_num_for_depth_1
-// frame_num_0 func_id_x line_x start_cap end_cap
+// frame_num_0 func_id_x line_x func_id_y line_y start_cap predicted_cap
 // frame_num_1 ...
 // ...
-// stack_num_for_depth_2
-// frame_num_0 func_id_x line_x func_id_y line_y start_cap end_cap
-// frame_num_1 ...
-// ...
-func (g *globalStat) emitProfile(w io.Writer, maxDepth uint) error {
+func (g *globalStat) emitProfile(w io.Writer) error {
 	const header = "EXTRA SLICE PROFILE V1\n"
+
+	var b bytes.Buffer
+	b.WriteString(header)
+
+	if len(g.depthStats) == 0 {
+		// No statistics, emit an empty profile with func_number == -1.
+		fmt.Fprintln(&b, "-1")
+		_, err := w.Write(b.Bytes())
+		return err
+	}
+
 	allHashes := make(map[funcHash]int)
-	for _, ds := range g.depthToStat {
+	for _, ds := range g.depthStats {
 		for _, st := range ds.stacks {
 			for _, fr := range st.frames {
 				allHashes[fr.funchash] = -1
 			}
 		}
 	}
-
-	hashes := make([]funcHash, 0, len(g.depthToStat))
+	hashes := make([]funcHash, 0, len(allHashes))
 	for hash := range allHashes {
 		hashes = append(hashes, hash)
 	}
+	// Sort function hashes and assign profile indices to each.
 	slices.Sort(hashes)
 	for i, hash := range hashes {
 		allHashes[hash] = i
 	}
-	var b bytes.Buffer
-	b.WriteString(header)
+
 	funcNumber := len(hashes)
 	fmt.Fprintf(&b, "%d\n", funcNumber)
 	for id, hash := range hashes {
 		fname := g.hashToString[stringHash(hash)]
 		fmt.Fprintf(&b, "%d %s\n", id, fname)
 	}
-
-	depth := min(int(maxDepth), len(g.depthToStat))
+	depth := len(g.depthStats) - 1
 	fmt.Fprintf(&b, "%d\n", depth)
-	for i := 0; i < int(depth); i++ {
-		stat := g.depthToStat[i]
+	for _, stat := range g.depthStats {
 		fmt.Fprintf(&b, "%d\n", len(stat.stacks))
 		for _, st := range stat.stacks {
 			stackLen := len(st.frames)
@@ -107,7 +115,7 @@ func (g *globalStat) emitProfile(w io.Writer, maxDepth uint) error {
 				funcId := allHashes[fr.funchash]
 				fmt.Fprintf(&b, "%d %s ", funcId, fr.line)
 			}
-			fmt.Fprintf(&b, "%d %d\n", st.startCap, st.endCap)
+			fmt.Fprintf(&b, "%d %d\n", st.startCap, st.predictedCap)
 		}
 	}
 	_, err := w.Write(b.Bytes())

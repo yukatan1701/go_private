@@ -250,7 +250,7 @@ func Main(archInit func(*ssagen.ArchInfo)) {
 	var sliceProfile *pgoir.SliceProfile
 	if base.Flag.SliceProfile != "" {
 		var err error
-		sliceProfile, err = pgoir.NewSlice(base.Flag.SliceProfile)
+		sliceProfile, err = pgoir.NewSliceProfile(base.Flag.SliceProfile)
 		if err != nil {
 			log.Fatalf("%s: PGO error: %v", base.Flag.SliceProfile, err)
 		}

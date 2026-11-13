@@ -4110,7 +4110,7 @@ func (s *state) append(n *ir.CallExpr, inplace bool) *ssa.Value {
 			startCap := s.constInt(types.Types[types.TINT], int64(n.AppendInfo.StartCap))
 			predCap := s.constInt(types.Types[types.TINT], int64(n.AppendInfo.PredictedCap))
 			r = s.rtcall(ir.Syms.GrowsliceSpecial, true, []*types.Type{n.Type()}, p, l, c, nargs, taddr, startCap, predCap)
-			if base.Debug.SliceProfDebug > 0 {
+			if base.Debug.PGOSliceDebug > 0 {
 				fmt.Printf("%v: %v: generate growsliceSpecial (stage=ssa) (startCap=%d, predictedCap=%d)\n",
 					ir.Line(n), ir.FuncName(s.curfn), n.AppendInfo.StartCap, n.AppendInfo.PredictedCap)
 			}

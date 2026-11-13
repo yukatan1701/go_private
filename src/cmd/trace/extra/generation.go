@@ -181,7 +181,7 @@ func (gen *generation) readStack(ev *raw.Event) error {
 	}
 	frames := ev.Args[len(spec.Args):]
 	depth := 0
-	for i := 0; i < len(frames) && depth < maxStackDepth; i += 4 {
+	for i := 0; i < len(frames) && depth <= maxStackDepth; i += 4 {
 		funcId := frames[i+1]
 		fileId := frames[i+2]
 		line := strconv.Itoa(int(frames[i+3]))

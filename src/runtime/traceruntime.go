@@ -161,7 +161,7 @@ func traceAllocFreeEnabled() bool {
 }
 
 // traceGrowslice returns true if the trace is currently enabled
-// and alloc/free events are also enabled.
+// and growslice events are also enabled.
 //
 //go:nosplit
 func traceGrowsliceEnabled() bool {

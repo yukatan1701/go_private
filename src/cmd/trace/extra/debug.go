@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	debug          = 2
+	debug          = 0
 	debugFindBest  = debug > 1
 	maxPrintFrames = 5
 	separator      = "-------------------------------\n"

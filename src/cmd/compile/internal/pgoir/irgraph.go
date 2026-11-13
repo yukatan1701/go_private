@@ -121,7 +121,6 @@ type Profile struct {
 }
 
 type GrowsliceStat struct {
-	//Line     int
 	StartCap     int
 	PredictedCap int
 }
@@ -137,6 +136,8 @@ type GrowsliceNode struct {
 	Stat     GrowsliceStat
 }
 
+// SliceProfile contains call trees for each depth.
+// Height(DepthTrees[i]) == i+1.
 type SliceProfile struct {
 	DepthTrees []map[GrowsliceCallsite]*GrowsliceNode
 }
@@ -525,7 +526,9 @@ func DirectCallee(fn ir.Node) *ir.Func {
 	return nil
 }
 
-func NewSlice(profileFile string) (*SliceProfile, error) {
+// Load a slice profile from a corresponding file. See a profile structure
+// in cmd/trace/extra/profile.go
+func NewSliceProfile(profileFile string) (*SliceProfile, error) {
 	const wantSliceHdr = "EXTRA SLICE PROFILE V1\n"
 	f, err := os.Open(profileFile)
 	if err != nil {
@@ -556,6 +559,12 @@ func NewSlice(profileFile string) (*SliceProfile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading slice profile: %w", err)
 	}
+	if funcNumber < 0 {
+		if base.Debug.PGOSliceDebug > 0 {
+			base.Warn("slice profile does not contain any statistics.")
+		}
+		return nil, nil
+	}
 
 	idToFunc := make(map[int]string)
 	for i := 0; i < funcNumber; i++ {
@@ -585,12 +594,15 @@ func NewSlice(profileFile string) (*SliceProfile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading slice profile: %w", err)
 	}
+	if maxDepth < 0 {
+		return nil, fmt.Errorf("slice profile is corrupted: maxDepth must be >= 0, got %d", maxDepth)
+	}
 
 	sp := SliceProfile{
 		DepthTrees: make([]map[GrowsliceCallsite]*GrowsliceNode, 0, maxDepth),
 	}
 
-	for depth := 1; depth <= maxDepth; depth++ {
+	for depth := 0; depth <= maxDepth; depth++ {
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
 				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
@@ -600,7 +612,6 @@ func NewSlice(profileFile string) (*SliceProfile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error reading slice profile: %w", err)
 		}
-
 		tree := make(map[GrowsliceCallsite]*GrowsliceNode)
 		for j := 0; j < stackNum; j++ {
 			if !scanner.Scan() {
@@ -610,15 +621,28 @@ func NewSlice(profileFile string) (*SliceProfile, error) {
 			}
 			line := scanner.Text()
 			tokens := strings.Split(line, " ")
+			if len(tokens) == 0 {
+				return nil, fmt.Errorf("slice profile is corrupted: not enough tokens for a stack description")
+			}
+			// A line consists of `stackLen` frames {func_id, line_id} and a pair {start_cap, predicted_cap}:
+			// stackLen func_id_1 line_1 ... func_id_n line_n start_cap predicted_cap
 			tokIndex := 0
 			stackLen, err := strconv.Atoi(tokens[tokIndex])
 			if err != nil {
 				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
 			}
+			if stackLen < 1 {
+				return nil, fmt.Errorf("slice profile is corrupted: invalid stack length: %d (min=1)", stackLen)
+			} else if stackLen > maxDepth+1 {
+				return nil, fmt.Errorf("slice profile is corrupted: too many frames for one stack: got %d, max %d", stackLen, maxDepth)
+			}
+			tokNumber := 1 + stackLen*2 + 2
+			if len(tokens) != tokNumber {
+				return nil, fmt.Errorf("slice profile is corrupted: expected %d tokens in a line, got %d", tokNumber, len(tokens))
+			}
 			tokIndex++
 			var prev, cur *GrowsliceNode
 			for k := 0; k < stackLen; k++ {
-				// Read frame (func_id + line_num).
 				funcId, err := strconv.Atoi(tokens[tokIndex])
 				if err != nil {
 					return nil, fmt.Errorf("slice profile is corrupted: %w", err)
@@ -632,6 +656,9 @@ func NewSlice(profileFile string) (*SliceProfile, error) {
 				fname, ok := idToFunc[funcId]
 				if !ok {
 					return nil, fmt.Errorf("slice profile is corrupted: function with id=%d is not found", funcId)
+				}
+				if line < 0 {
+					return nil, fmt.Errorf("slice profile is corrupted: invalid line number: %d", line)
 				}
 				cs := GrowsliceCallsite{Func: fname, Line: line}
 				if k == 0 {
@@ -653,13 +680,12 @@ func NewSlice(profileFile string) (*SliceProfile, error) {
 				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
 			}
 			tokIndex++
-			endCap, err := strconv.Atoi(tokens[tokIndex])
+			predCap, err := strconv.Atoi(tokens[tokIndex])
 			if err != nil {
 				return nil, fmt.Errorf("slice profile is corrupted: %w", err)
 			}
 			prev.Stat.StartCap = startCap
-			prev.Stat.PredictedCap = endCap
-			tokIndex++
+			prev.Stat.PredictedCap = predCap
 		}
 		sp.DepthTrees = append(sp.DepthTrees, tree)
 	}
@@ -678,10 +704,10 @@ func NewSlice(profileFile string) (*SliceProfile, error) {
 		}
 	}
 
-	if base.Debug.SliceProfDebug > 1 {
+	if base.Debug.PGOSliceDebug > 1 {
 		fmt.Printf("Loaded slice profile:\n")
 		for i, tree := range sp.DepthTrees {
-			fmt.Printf("Depth %d:\n", i+1)
+			fmt.Printf("Depth %d:\n", i)
 			for _, root := range tree {
 				printNode(root, 0)
 			}
