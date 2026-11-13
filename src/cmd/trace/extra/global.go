@@ -402,7 +402,6 @@ func (g *globalStat) findBestSolution(depth uint) error {
 		printDebug("TRIMMED STACKS (depth=%d)\n", depth)
 	}
 	stat := depthStat{
-		depth:  depth,
 		stacks: make([]profileStack, 0, len(trimmedStacks)),
 	}
 	for _, s := range trimmedStacks {
@@ -622,7 +621,9 @@ func (s *trimmedStack) findBest() error {
 		// capacities reached by one allocation, we will just skip such
 		// cases in order to not complicate the estimation.
 		if oneAllocPerChain > 1 {
-			printDebug("SKIP: has %d allocs/chain == 1\n", oneAllocPerChain)
+			if debugFindBest {
+				printDebug("SKIP: has %d allocs/chain == 1\n", oneAllocPerChain)
+			}
 			continue
 		}
 

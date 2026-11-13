@@ -39,9 +39,9 @@ go 1.28
 
 	// Build the test with the profile.
 	pprof := filepath.Join(dir, sliceProfFile)
-	gcflag := fmt.Sprintf("-gcflags=-sliceprofile=%s -d=sliceprofdebug=1", pprof)
+	gcflag := fmt.Sprintf("-gcflags=-sliceprofile=%s -d=pgoslicedebug=1", pprof)
 	exe := filepath.Join(dir, "test.exe")
-	cmd := testenv.CleanCmdEnv(testenv.Command(t, testenv.GoToolPath(t), "test", "-c", "-o", exe, gcflag, "."))
+	cmd := testenv.CleanCmdEnv(testenv.Command(t, testenv.GoToolPath(t), "test", "-c", "-a", "-o", exe, gcflag, "."))
 	cmd.Dir = dir
 	t.Log(cmd)
 	out, err := cmd.CombinedOutput()
@@ -116,7 +116,7 @@ func TestPGOGrowslice(t *testing.T) {
 
 	want := []growslice{
 		{
-			pos:      "./growslice_predicted.go:18:14: doAppend",
+			pos:      "./growslice_predicted.go:17:14: doAppend",
 			startCap: "0",
 			predCap:  "4",
 		},

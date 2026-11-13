@@ -76,13 +76,13 @@ func loadAppendStatistics(fn *ir.Func, prof *SliceProfile) {
 				ir.Line(n), ir.FuncName(fn), depth, len(prof.DepthTrees)-1, stat.StartCap, stat.PredictedCap)
 		}
 		pos := callPos{filename: ipos.AbsFilename(), line: ipos.RelLine()}
-		if call, ok := posToCall[pos]; ok {
+		if call, ok := posToCall[pos]; ok && ipos.RelCol() != base.Ctxt.InnermostPos(call.Pos()).RelCol() {
 			// We already have a call to growslice on this line.
 			// Slice profile does not consider columns and we cannot distinguish
 			// appends for different slices. So, skip such calls conservatively.
 			call.AppendInfo = nil
 			if base.Debug.PGOSliceDebug > 0 {
-				fmt.Printf("%v: %v: found several appends on the same position, skip them all.\n",
+				fmt.Printf("%v: %v: found several appends on the same line, skip them all.\n",
 					ir.Line(n), ir.FuncName(fn))
 			}
 		} else {

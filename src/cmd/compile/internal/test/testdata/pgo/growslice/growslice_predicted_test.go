@@ -6,10 +6,11 @@
 // then a new slice.prof file should be generated:
 //
 //  $ cd $GOROOT/src/cmd/compile/internal/test/testdata/pgo/growslice/
+//  $ go mod init example.com/pgo/growslice
 //  $ GODEBUG=tracegrowslice=1 go test -bench=. -benchtime=10000x -trace=trace.out
 //  $ go tool trace -profextra=slice trace.out > slice.prof
 
-package main
+package growslice
 
 import "testing"
 

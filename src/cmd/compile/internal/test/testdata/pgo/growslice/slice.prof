@@ -2,9 +2,9 @@ EXTRA SLICE PROFILE V1
 2
 0 example.com/pgo/growslice.doAppend
 1 example.com/pgo/growslice.A
-2
 1
-1 0 18 0 4
+1
+1 0 17 0 4
 2
-2 0 18 1 25 0 64
-2 0 18 1 27 0 4
+2 0 17 1 25 0 64
+2 0 17 1 27 0 4

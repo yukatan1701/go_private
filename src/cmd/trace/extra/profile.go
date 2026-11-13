@@ -35,7 +35,6 @@ const maxStackDepth = 1
 
 // Call stack info for each desirable depth.
 type depthStat struct {
-	depth  uint
 	stacks []profileStack
 }
 

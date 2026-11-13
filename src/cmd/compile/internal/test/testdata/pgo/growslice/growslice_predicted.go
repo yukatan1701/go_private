@@ -6,12 +6,11 @@
 // then a new slice.prof file should be generated:
 //
 //  $ cd $GOROOT/src/cmd/compile/internal/test/testdata/pgo/growslice/
+//  $ go mod init example.com/pgo/growslice
 //  $ GODEBUG=tracegrowslice=1 go test -bench=. -benchtime=10000x -trace=trace.out
 //  $ go tool trace -profextra=slice trace.out > slice.prof
 
-package main
-
-import "time"
+package growslice
 
 func doAppend(a *[]int, n int) {
 	for i := range n {
@@ -19,6 +18,7 @@ func doAppend(a *[]int, n int) {
 	}
 }
 
+//go:noinline
 func A(i int) {
 	var a []int
 	if i%2 == 0 {
@@ -26,9 +26,4 @@ func A(i int) {
 	} else {
 		doAppend(&a, 4)
 	}
-}
-
-func main() {
-	time.Sleep(time.Second)
-	A(0)
 }
